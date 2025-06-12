@@ -8,15 +8,15 @@ export class GameService {
   private games: Map<string, GameState> = new Map();
   private pendingTiles: Map<string, PlacedTile[]> = new Map();
 
-  initializeGame(gameId: string, playerNames: string[]): GameState {
-    console.log('Initializing game with players:', playerNames);
+  initializeGame(gameId: string, roomPlayers: Array<{id: string, name: string}>): GameState {
+    console.log('Initializing game with players:', roomPlayers);
     let tileBag = createTileBag();
-    const players: Player[] = playerNames.map((name, index) => {
+    const players: Player[] = roomPlayers.map((roomPlayer) => {
       const { drawnTiles, remainingBag } = drawTiles(tileBag, TILES_PER_PLAYER);
       tileBag = remainingBag;
       return {
-        id: `player-${index}`,
-        name,
+        id: roomPlayer.id,
+        name: roomPlayer.name,
         tiles: drawnTiles,
         score: 0,
         hasEndedGame: false,

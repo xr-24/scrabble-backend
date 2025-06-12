@@ -175,8 +175,8 @@ export class RoomManager {
 
     // Start the game
     room.isStarted = true;
-    const playerNames = room.players.map(p => p.name);
-    const gameState = gameService.initializeGame(roomId, playerNames);
+    const roomPlayers = room.players.map(p => ({ id: p.id, name: p.name }));
+    const gameState = gameService.initializeGame(roomId, roomPlayers);
     room.gameState = gameState;
 
     console.log(`Game started in room ${room.code} with ${room.players.length} players`);
