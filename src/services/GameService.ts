@@ -83,16 +83,33 @@ export class GameService {
   }
 
   async commitMove(gameId: string, playerId: string): Promise<{ success: boolean; errors: string[]; moveResult?: MoveResult }> {
+    console.log('CommitMove called:', { gameId, playerId });
     const gameState = this.games.get(gameId);
     const pendingTiles = this.pendingTiles.get(gameId);
     
+    console.log('Game state exists:', !!gameState);
+    console.log('Pending tiles:', pendingTiles);
+    
     if (!gameState || !pendingTiles) {
+      console.log('Game or pending tiles not found');
       return { success: false, errors: ['Game not found'] };
     }
 
     const currentPlayer = gameState.players[gameState.currentPlayerIndex];
-    if (!currentPlayer || currentPlayer.id !== playerId || pendingTiles.length === 0) {
-      return { success: false, errors: ['Invalid move attempt'] };
+    console.log('Current player:', currentPlayer?.id, 'Requested player:', playerId);
+    console.log('Current player index:', gameState.currentPlayerIndex);
+    console.log('Pending tiles length:', pendingTiles.length);
+    
+    if (!currentPlayer) {
+      return { success: false, errors: ['No current player found'] };
+    }
+    
+    if (currentPlayer.id !== playerId) {
+      return { success: false, errors: ['Not your turn'] };
+    }
+    
+    if (pendingTiles.length === 0) {
+      return { success: false, errors: ['No tiles placed'] };
     }
 
     const moveResult = await moveManager.executeMove(gameState.board, currentPlayer, pendingTiles);

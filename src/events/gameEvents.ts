@@ -43,6 +43,7 @@ export function registerGameEvents(socket: Socket, io: Server) {
     
     const context = getPlayerGameContext(socket.id);
     if (!context) {
+      console.log('No game context for place-tile');
       socket.emit('place-tile-response', {
         success: false,
         error: 'Not in an active game'
@@ -52,7 +53,10 @@ export function registerGameEvents(socket: Socket, io: Server) {
 
     // Check if it's the player's turn
     const currentPlayer = context.gameState.players[context.gameState.currentPlayerIndex];
+    console.log('Place tile - Current player:', currentPlayer?.id, 'Requesting player:', context.player.id);
+    
     if (currentPlayer.id !== context.player.id) {
+      console.log('Place tile - Not player turn');
       socket.emit('place-tile-response', {
         success: false,
         error: 'Not your turn'
@@ -61,6 +65,7 @@ export function registerGameEvents(socket: Socket, io: Server) {
     }
 
     const success = gameService.addPendingTile(context.roomId, data.tile, data.row, data.col);
+    console.log('Add pending tile result:', success);
     
     if (success) {
       socket.emit('place-tile-response', {
