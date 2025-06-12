@@ -145,6 +145,33 @@ export function registerRoomEvents(socket: Socket, io: Server) {
     }
   });
 
+  // Send chat message
+  socket.on('send-chat-message', (data: { message: string; playerColor: string }) => {
+    console.log('Chat message from:', socket.id, data);
+    
+    const playerInRoom = roomManager.getPlayerInRoom(socket.id);
+    
+    if (playerInRoom) {
+      const chatMessage = {
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+        playerId: playerInRoom.player.id,
+        playerName: playerInRoom.player.name,
+        playerColor: data.playerColor,
+        message: data.message,
+        timestamp: new Date().toISOString(),
+      };
+      
+      // Broadcast chat message to all players in the room
+      io.to(playerInRoom.room.id).emit('chat-message', chatMessage);
+      
+      console.log(`Chat message sent in room ${playerInRoom.room.code}: ${data.message}`);
+    } else {
+      socket.emit('room-error', {
+        message: 'Not in a room'
+      });
+    }
+  });
+
   // Handle disconnect
   socket.on('disconnect', () => {
     console.log('Player disconnected:', socket.id);
