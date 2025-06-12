@@ -1,25 +1,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import fetch from 'node-fetch';
 
 class DictionaryService {
   private words: Set<string> | null = null;
-  private loadingPromise: Promise<void> | null = null;
+  private isLoaded: boolean = false;
 
   async loadDictionary(): Promise<void> {
-    if (this.words) {
-      return; // Already loaded
-    }
-
-    if (this.loadingPromise) {
-      return this.loadingPromise; // Already loading
-    }
-
-    this.loadingPromise = this.fetchAndParseDictionary();
-    return this.loadingPromise;
-  }
-
-  private async fetchAndParseDictionary(): Promise<void> {
     console.log('Loading dictionary...');
     
     try {
@@ -28,6 +14,7 @@ class DictionaryService {
       if (fs.existsSync(localPath)) {
         const content = fs.readFileSync(localPath, 'utf8');
         this.words = new Set(content.trim().split('\n').map(word => word.trim().toUpperCase()));
+        this.isLoaded = true;
         console.log(`Dictionary loaded from local file with ${this.words.size} words`);
         return;
       }
@@ -35,14 +22,16 @@ class DictionaryService {
       console.log('Local file not found, downloading dictionary...');
     }
 
-    // If local file doesn't exist, download it
+    // Download dictionary using native fetch
     try {
+      console.log('Downloading dictionary from remote source...');
       const response = await fetch('https://www.wordgamedictionary.com/sowpods/download/sowpods.txt');
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const content = await response.text();
       this.words = new Set(content.trim().split('\n').map(word => word.trim().toUpperCase()));
+      this.isLoaded = true;
       console.log(`Dictionary downloaded and loaded with ${this.words.size} words`);
     } catch (error) {
       console.error('Failed to download dictionary:', error);
@@ -69,7 +58,7 @@ class DictionaryService {
   }
 
   isDictionaryLoaded(): boolean {
-    return this.words !== null;
+    return this.isLoaded;
   }
 }
 
