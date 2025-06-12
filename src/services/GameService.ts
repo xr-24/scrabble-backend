@@ -398,6 +398,9 @@ export class GameService {
       moveHistory: [...gameState.moveHistory, newEntry],
     };
 
+    console.log('Adding move to history:', newEntry);
+    console.log('Updated move history length:', updatedGameState.moveHistory.length);
+
     this.games.set(gameId, updatedGameState);
   }
 
