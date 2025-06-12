@@ -6,6 +6,11 @@ class DictionaryService {
   private isLoaded: boolean = false;
 
   async loadDictionary(): Promise<void> {
+    // Don't reload if already loaded
+    if (this.isLoaded && this.words) {
+      return;
+    }
+
     console.log('Loading dictionary...');
     
     try {
@@ -44,7 +49,10 @@ class DictionaryService {
       return false;
     }
 
-    await this.loadDictionary();
+    // Only load dictionary if not already loaded
+    if (!this.isLoaded || !this.words) {
+      await this.loadDictionary();
+    }
     
     if (!this.words) {
       throw new Error('Dictionary not loaded');
