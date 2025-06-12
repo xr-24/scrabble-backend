@@ -140,18 +140,7 @@ export class GameService {
         p.id === currentPlayer.id ? updatedPlayer : p
       );
 
-      // Add move to history
-      const words = moveResult.validation.words.map(w => w.word);
-      this.addMoveToHistory(
-        gameId,
-        currentPlayer.id,
-        currentPlayer.name,
-        'WORD',
-        words,
-        moveResult.score.totalScore
-      );
-
-      // Update game state
+      // Update game state first
       const updatedGameState: GameState = {
         ...gameState,
         board: newBoard,
@@ -161,6 +150,17 @@ export class GameService {
 
       this.games.set(gameId, updatedGameState);
       this.pendingTiles.set(gameId, []);
+
+      // Add move to history after updating game state
+      const words = moveResult.validation.words.map(w => w.word);
+      this.addMoveToHistory(
+        gameId,
+        currentPlayer.id,
+        currentPlayer.name,
+        'WORD',
+        words,
+        moveResult.score.totalScore
+      );
 
       // Check if we should skip turn advancement (EXTRA_TURN power-up)
       if (!moveResult.modifiers?.skipTurnAdvancement) {
@@ -253,16 +253,6 @@ export class GameService {
         : p
     );
 
-    // Add exchange to history
-    this.addMoveToHistory(
-      gameId,
-      currentPlayer.id,
-      currentPlayer.name,
-      'EXCHANGE',
-      [],
-      0
-    );
-
     const updatedGameState: GameState = {
       ...gameState,
       players: updatedPlayers,
@@ -271,6 +261,16 @@ export class GameService {
 
     this.games.set(gameId, updatedGameState);
     this.pendingTiles.set(gameId, []);
+
+    // Add exchange to history after updating game state
+    this.addMoveToHistory(
+      gameId,
+      currentPlayer.id,
+      currentPlayer.name,
+      'EXCHANGE',
+      [],
+      0
+    );
 
     // Move to next turn
     this.nextTurn(gameId);
@@ -289,7 +289,9 @@ export class GameService {
       return { success: false, errors: ['Invalid pass attempt'] };
     }
 
-    // Add pass to history
+    this.pendingTiles.set(gameId, []);
+
+    // Add pass to history after clearing pending tiles
     this.addMoveToHistory(
       gameId,
       currentPlayer.id,
@@ -298,8 +300,6 @@ export class GameService {
       [],
       0
     );
-
-    this.pendingTiles.set(gameId, []);
 
     // Move to next turn
     this.nextTurn(gameId);
