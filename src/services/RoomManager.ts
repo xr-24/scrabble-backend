@@ -13,7 +13,7 @@ export class RoomManager {
   private playerRooms: Map<string, string> = new Map(); // socketId -> roomId
   private disconnectedPlayers: Map<string, DisconnectedPlayer> = new Map(); // playerId -> DisconnectedPlayer
   
-  private readonly DISCONNECT_GRACE_PERIOD = 2 * 60 * 1000; // 2 minutes
+  private readonly DISCONNECT_GRACE_PERIOD = 20 * 60 * 1000; // 20 minutes
   private readonly ROOM_CLEANUP_TIMEOUT = 10 * 60 * 1000; // 10 minutes
 
   generateRoomCode(): string {
