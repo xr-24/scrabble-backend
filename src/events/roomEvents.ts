@@ -50,7 +50,7 @@ export function registerRoomEvents(socket: Socket, io: Server) {
       // Broadcast room update to all players in the room
       io.to(result.room.id).emit('room-updated', result.room);
       
-      // Notify other players that someone joined
+      // Notify other players that someone joined (or reconnected)
       socket.to(result.room.id).emit('player-joined', {
         playerName: data.playerName,
         room: result.room
@@ -172,7 +172,7 @@ export function registerRoomEvents(socket: Socket, io: Server) {
     }
   });
 
-  // Handle disconnect
+  // Handle disconnect with grace period
   socket.on('disconnect', () => {
     console.log('Player disconnected:', socket.id);
     
@@ -184,14 +184,16 @@ export function registerRoomEvents(socket: Socket, io: Server) {
       if (roomInfo) {
         io.to(result.roomId).emit('room-updated', roomInfo);
         
-        // Notify remaining players that someone disconnected
+        // Notify remaining players about disconnection with grace period info
         socket.to(result.roomId).emit('player-disconnected', {
+          playerId: result.playerId,
           wasHost: result.wasHost,
-          room: roomInfo
+          room: roomInfo,
+          hasGracePeriod: true // Let clients know this player might reconnect
         });
       }
       
-      console.log(`Player disconnected from room ${result.roomId}`);
+      console.log(`Player temporarily disconnected from room ${result.roomId} (grace period active)`);
     }
   });
 }

@@ -1,10 +1,20 @@
 import type { Room, RoomPlayer, CreateRoomRequest, JoinRoomRequest, RoomInfo } from '../types/room';
 import { gameService } from './GameService';
 
+interface DisconnectedPlayer {
+  player: RoomPlayer;
+  disconnectedAt: Date;
+  roomId: string;
+}
+
 export class RoomManager {
   private rooms: Map<string, Room> = new Map();
   private roomsByCode: Map<string, string> = new Map(); // code -> roomId
   private playerRooms: Map<string, string> = new Map(); // socketId -> roomId
+  private disconnectedPlayers: Map<string, DisconnectedPlayer> = new Map(); // playerId -> DisconnectedPlayer
+  
+  private readonly DISCONNECT_GRACE_PERIOD = 2 * 60 * 1000; // 2 minutes
+  private readonly ROOM_CLEANUP_TIMEOUT = 10 * 60 * 1000; // 10 minutes
 
   generateRoomCode(): string {
     // Generate a 6-digit room code
@@ -71,6 +81,39 @@ export class RoomManager {
       return { success: false, error: 'Room not found' };
     }
 
+    // Check if this is a reconnection attempt
+    const disconnectedPlayer = Array.from(this.disconnectedPlayers.values())
+      .find(dp => dp.roomId === roomId && dp.player.name === request.playerName);
+
+    if (disconnectedPlayer) {
+      // Reconnect existing player
+      const player = disconnectedPlayer.player;
+      player.socketId = playerSocketId;
+      
+      // Remove from disconnected list
+      this.disconnectedPlayers.delete(player.id);
+      
+      // Add back to room if not already there
+      if (!room.players.find(p => p.id === player.id)) {
+        room.players.push(player);
+      } else {
+        // Update existing player's socket ID
+        const existingPlayer = room.players.find(p => p.id === player.id);
+        if (existingPlayer) {
+          existingPlayer.socketId = playerSocketId;
+        }
+      }
+      
+      this.playerRooms.set(playerSocketId, roomId);
+      
+      console.log(`Player ${request.playerName} reconnected to room ${request.roomCode}`);
+      
+      return {
+        success: true,
+        room: this.getRoomInfo(roomId)!
+      };
+    }
+
     if (room.isStarted) {
       return { success: false, error: 'Game has already started' };
     }
@@ -128,17 +171,9 @@ export class RoomManager {
 
     console.log(`Player ${player.name} left room ${room.code}`);
 
-    // If room is empty, clean it up
+    // If room is empty, start cleanup timer instead of immediate deletion
     if (room.players.length === 0) {
-      this.rooms.delete(roomId);
-      this.roomsByCode.delete(room.code);
-      
-      // Clean up game if it exists
-      if (room.gameState) {
-        gameService.removeGame(roomId);
-      }
-      
-      console.log(`Room ${room.code} deleted (empty)`);
+      this.scheduleRoomCleanup(roomId);
     } else if (wasHost && !room.isStarted) {
       // Transfer host to next player if game hasn't started
       room.players[0].isHost = true;
@@ -147,6 +182,104 @@ export class RoomManager {
     }
 
     return { success: true, roomId, wasHost };
+  }
+
+  // Handle disconnect with grace period
+  handlePlayerDisconnect(socketId: string): { roomId?: string; wasHost?: boolean; playerId?: string } {
+    const roomId = this.playerRooms.get(socketId);
+    if (!roomId) {
+      return {};
+    }
+
+    const room = this.rooms.get(roomId);
+    if (!room) {
+      return {};
+    }
+
+    const player = room.players.find(p => p.socketId === socketId);
+    if (!player) {
+      return {};
+    }
+
+    // If game hasn't started, remove immediately
+    if (!room.isStarted) {
+      return this.leaveRoom(socketId);
+    }
+
+    // If game is active, add to disconnected players with grace period
+    this.disconnectedPlayers.set(player.id, {
+      player: { ...player },
+      disconnectedAt: new Date(),
+      roomId
+    });
+
+    // Don't remove from room immediately, just update socket tracking
+    this.playerRooms.delete(socketId);
+    
+    // Schedule cleanup of disconnected player
+    setTimeout(() => {
+      this.cleanupDisconnectedPlayer(player.id);
+    }, this.DISCONNECT_GRACE_PERIOD);
+
+    console.log(`Player ${player.name} disconnected from room ${room.code} (grace period active)`);
+
+    return { 
+      roomId, 
+      wasHost: player.isHost,
+      playerId: player.id
+    };
+  }
+
+  private cleanupDisconnectedPlayer(playerId: string): void {
+    const disconnectedPlayer = this.disconnectedPlayers.get(playerId);
+    if (!disconnectedPlayer) {
+      return; // Already reconnected
+    }
+
+    const room = this.rooms.get(disconnectedPlayer.roomId);
+    if (!room) {
+      this.disconnectedPlayers.delete(playerId);
+      return;
+    }
+
+    // Remove player from room
+    const playerIndex = room.players.findIndex(p => p.id === playerId);
+    if (playerIndex !== -1) {
+      const player = room.players[playerIndex];
+      room.players.splice(playerIndex, 1);
+      
+      console.log(`Player ${player.name} permanently removed from room ${room.code} (grace period expired)`);
+      
+      // If was host, transfer to next player
+      if (player.isHost && room.players.length > 0 && !room.isStarted) {
+        room.players[0].isHost = true;
+        room.hostId = room.players[0].id;
+      }
+    }
+
+    this.disconnectedPlayers.delete(playerId);
+
+    // If room is now empty, schedule cleanup
+    if (room.players.length === 0) {
+      this.scheduleRoomCleanup(disconnectedPlayer.roomId);
+    }
+  }
+
+  private scheduleRoomCleanup(roomId: string): void {
+    setTimeout(() => {
+      const room = this.rooms.get(roomId);
+      if (room && room.players.length === 0) {
+        this.rooms.delete(roomId);
+        this.roomsByCode.delete(room.code);
+        
+        // Clean up game if it exists
+        if (room.gameState) {
+          gameService.removeGame(roomId);
+        }
+        
+        console.log(`Room ${room.code} deleted after cleanup timeout`);
+      }
+    }, this.ROOM_CLEANUP_TIMEOUT);
   }
 
   startGame(hostSocketId: string): { success: boolean; gameState?: any; error?: string } {
@@ -248,20 +381,19 @@ export class RoomManager {
         console.log(`Cleaned up old room: ${room.code}`);
       }
     }
+
+    // Clean up old disconnected players
+    const gracePeriodAgo = new Date(Date.now() - this.DISCONNECT_GRACE_PERIOD);
+    for (const [playerId, disconnectedPlayer] of this.disconnectedPlayers) {
+      if (disconnectedPlayer.disconnectedAt < gracePeriodAgo) {
+        this.disconnectedPlayers.delete(playerId);
+      }
+    }
   }
 
   // Get all rooms (for debugging)
   getAllRooms(): Room[] {
     return Array.from(this.rooms.values());
-  }
-
-  // Handle player disconnect
-  handlePlayerDisconnect(socketId: string): { roomId?: string; wasHost?: boolean } {
-    const result = this.leaveRoom(socketId);
-    return {
-      roomId: result.roomId,
-      wasHost: result.wasHost
-    };
   }
 }
 
