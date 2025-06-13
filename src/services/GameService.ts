@@ -476,13 +476,25 @@ export class GameService {
   // Check if current player is AI and execute move if needed
   async checkAndExecuteAITurn(gameId: string): Promise<void> {
     const gameState = this.games.get(gameId);
-    if (!gameState) return;
+    if (!gameState) {
+      console.log(`checkAndExecuteAITurn: Game ${gameId} not found`);
+      return;
+    }
 
     const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+    console.log(`checkAndExecuteAITurn: Current player is ${currentPlayer?.name} (AI: ${currentPlayer?.isAI}, hasEnded: ${currentPlayer?.hasEndedGame})`);
+    
     if (currentPlayer && currentPlayer.isAI && !currentPlayer.hasEndedGame) {
+      console.log(`Scheduling AI move for ${currentPlayer.name} in ${gameId}`);
       // Add a small delay to make AI moves feel more natural
       setTimeout(async () => {
-        await this.executeAIMove(gameId);
+        try {
+          console.log(`Executing AI move for ${currentPlayer.name}`);
+          const result = await this.executeAIMove(gameId);
+          console.log(`AI move result for ${currentPlayer.name}:`, result);
+        } catch (error) {
+          console.error(`Error in AI move execution for ${currentPlayer.name}:`, error);
+        }
       }, 1000 + Math.random() * 2000); // 1-3 second delay
     }
   }

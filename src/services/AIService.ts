@@ -60,10 +60,12 @@ export class AIService {
     }
 
     console.log(`AI ${player.name} (${player.aiPersonality}) is thinking...`);
+    console.log(`AI ${player.name} has tiles:`, player.tiles.map(t => t.letter).join(', '));
 
     try {
       // Find all possible word placements
       const possibleMoves = await this.findAllPossibleMoves(gameState.board, player.tiles);
+      console.log(`AI ${player.name} found ${possibleMoves.length} possible moves`);
       
       if (possibleMoves.length === 0) {
         console.log(`AI ${player.name} has no valid moves, will exchange tiles`);
@@ -74,7 +76,7 @@ export class AIService {
       possibleMoves.sort((a, b) => b.score - a.score);
       const bestMove = possibleMoves[0];
 
-      console.log(`AI ${player.name} chose word "${bestMove.word}" for ${bestMove.score} points`);
+      console.log(`AI ${player.name} chose word "${bestMove.word}" for ${bestMove.score} points at (${bestMove.startRow}, ${bestMove.startCol}) ${bestMove.direction}`);
       
       return {
         type: 'WORD',
@@ -82,6 +84,7 @@ export class AIService {
       };
     } catch (error) {
       console.error(`Error generating AI move for ${player.name}:`, error);
+      console.error('Stack trace:', error instanceof Error ? error.stack : 'Unknown error');
       return { type: 'PASS' };
     }
   }
