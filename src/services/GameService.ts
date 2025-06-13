@@ -8,7 +8,7 @@ export class GameService {
   private games: Map<string, GameState> = new Map();
   private pendingTiles: Map<string, PlacedTile[]> = new Map();
 
-  initializeGame(gameId: string, roomPlayers: Array<{id: string, name: string}>): GameState {
+  initializeGame(gameId: string, roomPlayers: Array<{id: string, name: string, color?: string}>): GameState {
     console.log('Initializing game with players:', roomPlayers);
     let tileBag = createTileBag();
     const players: Player[] = roomPlayers.map((roomPlayer) => {
@@ -22,6 +22,7 @@ export class GameService {
         hasEndedGame: false,
         activePowerUps: [],
         activePowerUpForTurn: null,
+        tileColor: roomPlayer.color,
       };
     });
 
@@ -182,7 +183,16 @@ export class GameService {
     const moveResult = await moveManager.executeMove(gameState.board, currentPlayer, pendingTiles);
 
     if (moveResult.isValid && moveResult.score) {
-      const newBoard = moveManager.commitMove(gameState.board, pendingTiles);
+      // Stamp tiles with player ID before committing to board
+      const tilesWithOwnership = pendingTiles.map(placedTile => ({
+        ...placedTile,
+        tile: {
+          ...placedTile.tile,
+          placedByPlayerId: currentPlayer.id
+        }
+      }));
+      
+      const newBoard = moveManager.commitMove(gameState.board, tilesWithOwnership);
       const remainingTiles = moveManager.removeTilesFromPlayer(currentPlayer, pendingTiles);
       
       const tilesNeeded = TILES_PER_PLAYER - remainingTiles.length;

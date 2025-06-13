@@ -7,6 +7,7 @@ export interface Tile {
   emoji?: string;
   isBlank?: boolean;
   chosenLetter?: string;
+  placedByPlayerId?: string;
 }
 
 export interface PowerUp {
