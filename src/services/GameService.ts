@@ -492,8 +492,24 @@ export class GameService {
           console.log(`Executing AI move for ${currentPlayer.name}`);
           const result = await this.executeAIMove(gameId);
           console.log(`AI move result for ${currentPlayer.name}:`, result);
+          
+          if (!result.success) {
+            console.error(`AI move failed for ${currentPlayer.name}:`, result.errors);
+            // If AI move fails, try to pass turn to prevent getting stuck
+            console.log(`Attempting to pass turn for ${currentPlayer.name} after failed move`);
+            const passResult = this.passTurn(gameId, currentPlayer.id);
+            console.log(`Pass turn result for ${currentPlayer.name}:`, passResult);
+          }
         } catch (error) {
           console.error(`Error in AI move execution for ${currentPlayer.name}:`, error);
+          // Fallback: pass turn if AI completely fails
+          try {
+            console.log(`Emergency pass turn for ${currentPlayer.name} after error`);
+            const passResult = this.passTurn(gameId, currentPlayer.id);
+            console.log(`Emergency pass result for ${currentPlayer.name}:`, passResult);
+          } catch (passError) {
+            console.error(`Emergency pass also failed for ${currentPlayer.name}:`, passError);
+          }
         }
       }, 1000 + Math.random() * 2000); // 1-3 second delay
     }

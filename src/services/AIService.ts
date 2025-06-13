@@ -63,8 +63,8 @@ export class AIService {
     console.log(`AI ${player.name} has tiles:`, player.tiles.map(t => t.letter).join(', '));
 
     try {
-      // Find all possible word placements
-      const possibleMoves = await this.findAllPossibleMoves(gameState.board, player.tiles);
+      // Use a simpler, more reliable approach
+      const possibleMoves = await this.findSimplePossibleMoves(gameState.board, player.tiles);
       console.log(`AI ${player.name} found ${possibleMoves.length} possible moves`);
       
       if (possibleMoves.length === 0) {
@@ -85,108 +85,102 @@ export class AIService {
     } catch (error) {
       console.error(`Error generating AI move for ${player.name}:`, error);
       console.error('Stack trace:', error instanceof Error ? error.stack : 'Unknown error');
+      // Always fallback to pass instead of crashing
       return { type: 'PASS' };
     }
   }
 
-  private async findAllPossibleMoves(board: BoardCell[][], tiles: Tile[]): Promise<WordPlacement[]> {
+  // Simplified approach that's more reliable
+  private async findSimplePossibleMoves(board: BoardCell[][], tiles: Tile[]): Promise<WordPlacement[]> {
     const moves: WordPlacement[] = [];
     
-    // Get all possible words from the AI's tiles
-    const possibleWords = await this.findAllPossibleWords(tiles);
+    // Try common 2-3 letter words first (more likely to succeed)
+    const commonWords = await this.findCommonWords(tiles);
     
-    // For each word, find all valid placements on the board
-    for (const word of possibleWords) {
+    for (const word of commonWords) {
       const placements = await this.findValidPlacements(word, board, tiles);
       moves.push(...placements);
+      
+      // Limit to prevent timeout - if we find 10+ moves, that's enough
+      if (moves.length >= 10) break;
     }
 
     return moves;
   }
 
-  private async findAllPossibleWords(tiles: Tile[]): Promise<string[]> {
+  private async findCommonWords(tiles: Tile[]): Promise<string[]> {
     const words: string[] = [];
     const letters = tiles.map(t => t.letter.toUpperCase());
     
-    // Generate all possible combinations of letters (2-7 letters for efficiency)
-    for (let length = 2; length <= Math.min(7, letters.length); length++) {
-      const combinations = this.generateCombinations(letters, length);
-      
-      for (const combination of combinations) {
-        const permutations = this.generatePermutations(combination);
-        
-        for (const permutation of permutations) {
-          const word = permutation.join('');
-          if (await dictionaryService.isValidWord(word) && !words.includes(word)) {
+    // Common 2-letter words to try first
+    const common2Letter = ['AT', 'TO', 'OF', 'IN', 'IT', 'IS', 'BE', 'AS', 'OR', 'AN', 'ON', 'NO', 'SO', 'BY', 'MY', 'WE', 'UP', 'IF', 'GO', 'DO', 'ME', 'HE', 'AM', 'US', 'OX', 'AX'];
+    
+    // Common 3-letter words
+    const common3Letter = ['THE', 'AND', 'FOR', 'ARE', 'BUT', 'NOT', 'YOU', 'ALL', 'CAN', 'HER', 'WAS', 'ONE', 'OUR', 'OUT', 'DAY', 'GET', 'HAS', 'HIM', 'HIS', 'HOW', 'ITS', 'MAY', 'NEW', 'NOW', 'OLD', 'SEE', 'TWO', 'WHO', 'BOY', 'DID', 'CAT', 'DOG', 'RUN', 'SUN', 'BIG', 'RED', 'HOT', 'TOP', 'BAD', 'BAG', 'BED', 'BOX', 'CAR', 'CUP', 'EGG', 'EYE', 'FUN', 'HAT', 'JOB', 'LEG', 'MAN', 'PEN', 'PIG', 'RAT', 'SIT', 'TEN', 'WIN', 'YES', 'ZOO'];
+    
+    // Check if we can make any common words
+    for (const word of [...common2Letter, ...common3Letter]) {
+      if (this.canMakeWord(word, letters)) {
+        try {
+          if (await dictionaryService.isValidWord(word)) {
             words.push(word);
+          }
+        } catch (error) {
+          console.warn(`Error checking word ${word}:`, error);
+        }
+      }
+    }
+    
+    // Also try simple combinations of available letters
+    for (let i = 0; i < letters.length; i++) {
+      for (let j = i + 1; j < letters.length; j++) {
+        const word2 = letters[i] + letters[j];
+        if (!words.includes(word2)) {
+          try {
+            if (await dictionaryService.isValidWord(word2)) {
+              words.push(word2);
+            }
+          } catch (error) {
+            // Ignore errors for individual word checks
+          }
+        }
+        
+        for (let k = j + 1; k < letters.length; k++) {
+          const word3 = letters[i] + letters[j] + letters[k];
+          if (!words.includes(word3)) {
+            try {
+              if (await dictionaryService.isValidWord(word3)) {
+                words.push(word3);
+              }
+            } catch (error) {
+              // Ignore errors for individual word checks
+            }
           }
         }
       }
     }
-
+    
     return words;
   }
-
-  private generateCombinations(letters: string[], length: number): string[][] {
-    if (length === 0) return [[]];
-    if (letters.length === 0) return [];
-    
-    const combinations: string[][] = [];
+  
+  private canMakeWord(word: string, availableLetters: string[]): boolean {
     const letterCounts = new Map<string, number>();
     
     // Count available letters
-    for (const letter of letters) {
+    for (const letter of availableLetters) {
       letterCounts.set(letter, (letterCounts.get(letter) || 0) + 1);
     }
     
-    const uniqueLetters = Array.from(letterCounts.keys());
-    
-    const generateCombos = (currentCombo: string[], remainingLength: number, letterIndex: number) => {
-      if (remainingLength === 0) {
-        combinations.push([...currentCombo]);
-        return;
+    // Check if we have enough of each letter needed for the word
+    for (const letter of word) {
+      const needed = letterCounts.get(letter) || 0;
+      if (needed === 0) {
+        return false;
       }
-      
-      if (letterIndex >= uniqueLetters.length) return;
-      
-      const letter = uniqueLetters[letterIndex];
-      const maxCount = letterCounts.get(letter) || 0;
-      
-      // Try using 0 to maxCount of this letter
-      for (let count = 0; count <= Math.min(maxCount, remainingLength); count++) {
-        for (let i = 0; i < count; i++) {
-          currentCombo.push(letter);
-        }
-        
-        generateCombos(currentCombo, remainingLength - count, letterIndex + 1);
-        
-        // Remove the letters we just added
-        for (let i = 0; i < count; i++) {
-          currentCombo.pop();
-        }
-      }
-    };
-    
-    generateCombos([], length, 0);
-    return combinations;
-  }
-
-  private generatePermutations(letters: string[]): string[][] {
-    if (letters.length <= 1) return [letters];
-    
-    const permutations: string[][] = [];
-    
-    for (let i = 0; i < letters.length; i++) {
-      const letter = letters[i];
-      const remaining = [...letters.slice(0, i), ...letters.slice(i + 1)];
-      const subPermutations = this.generatePermutations(remaining);
-      
-      for (const subPerm of subPermutations) {
-        permutations.push([letter, ...subPerm]);
-      }
+      letterCounts.set(letter, needed - 1);
     }
     
-    return permutations;
+    return true;
   }
 
   private async findValidPlacements(word: string, board: BoardCell[][], availableTiles: Tile[]): Promise<WordPlacement[]> {
