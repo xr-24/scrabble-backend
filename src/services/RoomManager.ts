@@ -363,6 +363,33 @@ export class RoomManager {
     return { room, player };
   }
 
+  updatePlayerColor(socketId: string, color: string): { success: boolean; room?: RoomInfo; error?: string } {
+    const roomId = this.playerRooms.get(socketId);
+    if (!roomId) {
+      return { success: false, error: 'Player is not in a room' };
+    }
+
+    const room = this.rooms.get(roomId);
+    if (!room) {
+      return { success: false, error: 'Room not found' };
+    }
+
+    const player = room.players.find(p => p.socketId === socketId);
+    if (!player) {
+      return { success: false, error: 'Player not found in room' };
+    }
+
+    // Update player color
+    player.color = color;
+
+    console.log(`Player ${player.name} updated color to ${color} in room ${room.code}`);
+
+    return {
+      success: true,
+      room: this.getRoomInfo(roomId)!
+    };
+  }
+
   // Clean up rooms older than 1 hour with no activity
   cleanupOldRooms(): void {
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);

@@ -270,8 +270,55 @@ export function registerRoomEvents(socket: Socket, io: Server) {
     }
   });
 
+  // Update player color
+  socket.on('update-player-color', (data: { color: string }) => {
+    try {
+      // Rate limiting
+      if (!RateLimiter.checkLimit(socket.id, 'update-color', 3, 5000)) { // 3 per 5 seconds
+        socket.emit('room-error', {
+          message: 'Please wait before changing color again'
+        });
+        return;
+      }
+
+      console.log('Update player color from:', socket.id, data);
+      
+      // Validate input
+      if (!data || typeof data !== 'object') {
+        socket.emit('room-error', {
+          message: 'Invalid color data'
+        });
+        return;
+      }
+
+      // Basic color validation
+      const playerColor = typeof data.color === 'string' && 
+                         /^#[0-9A-Fa-f]{6}$/.test(data.color) 
+                         ? data.color 
+                         : '#DC143C';
+      
+      const result = roomManager.updatePlayerColor(socket.id, playerColor);
+      
+      if (result.success && result.room) {
+        // Broadcast room update to all players in the room
+        io.to(result.room.id).emit('room-updated', result.room);
+        
+        console.log(`Player color updated in room ${result.room.code}`);
+      } else {
+        socket.emit('room-error', {
+          message: result.error || 'Failed to update color'
+        });
+      }
+    } catch (error) {
+      console.error('Error in update-player-color:', error);
+      socket.emit('room-error', {
+        message: 'An error occurred while updating color'
+      });
+    }
+  });
+
   // Send chat message
-  socket.on('send-chat-message', (data: { message: string; playerColor: string }) => {
+  socket.on('send-chat-message', (data: { message: string; playerColor?: string }) => {
     try {
       // Rate limiting for chat
       if (!RateLimiter.checkLimit(socket.id, 'chat', 5, 5000)) { // 5 messages per 5 seconds
@@ -298,16 +345,22 @@ export function registerRoomEvents(socket: Socket, io: Server) {
         });
         return;
       }
-
-      // Basic color validation
-      const playerColor = typeof data.playerColor === 'string' && 
-                         /^#[0-9A-Fa-f]{6}$/.test(data.playerColor) 
-                         ? data.playerColor 
-                         : '#DC143C';
       
       const playerInRoom = roomManager.getPlayerInRoom(socket.id);
       
       if (playerInRoom) {
+        // Use stored player color or provided color as fallback
+        const playerColor = playerInRoom.player.color || 
+                           (typeof data.playerColor === 'string' && 
+                            /^#[0-9A-Fa-f]{6}$/.test(data.playerColor) 
+                            ? data.playerColor 
+                            : '#DC143C');
+
+        // Update player color if provided and different from stored
+        if (data.playerColor && data.playerColor !== playerInRoom.player.color) {
+          roomManager.updatePlayerColor(socket.id, data.playerColor);
+        }
+        
         const chatMessage = {
           id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
           playerId: playerInRoom.player.id,

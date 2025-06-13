@@ -17,6 +17,7 @@ export interface RoomPlayer {
   socketId: string;
   isHost: boolean;
   joinedAt: Date;
+  color?: string; // Player's chosen color for chat and tiles
 }
 
 export interface CreateRoomRequest {
