@@ -1,5 +1,5 @@
 import validator from 'validator';
-import * as DOMPurify from 'dompurify';
+import DOMPurify from 'dompurify';
 import { JSDOM } from 'jsdom';
 
 // Create a DOMPurify instance for server-side use
