@@ -48,6 +48,14 @@ export function registerGameEvents(socket: Socket, io: Server) {
       return player.tiles.some((t: any) => t.isPowerUp && t.powerUpType === tile.powerUpType);
     }
     
+    // For blank tiles, check by ID and blank status (letter might have been changed to chosenLetter)
+    if (tile.isBlank) {
+      return player.tiles.some((t: any) => 
+        t.id === tile.id && 
+        t.isBlank === true
+      );
+    }
+    
     // For regular tiles, check exact match
     return player.tiles.some((t: any) => 
       t.id === tile.id && 
