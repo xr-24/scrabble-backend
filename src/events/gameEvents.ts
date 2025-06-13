@@ -734,4 +734,81 @@ export function registerGameEvents(socket: Socket, io: Server) {
       });
     }
   });
+
+  // Execute power-up with parameters
+  socket.on('execute-powerup', (data: { powerUpType: string; params: any }) => {
+    try {
+      // Rate limiting
+      if (!RateLimiter.checkLimit(socket.id, 'execute-powerup', 3, 5000)) { // 3 per 5 seconds
+        socket.emit('execute-powerup-response', {
+          success: false,
+          error: 'Please wait before executing another power-up'
+        });
+        return;
+      }
+
+      console.log('Execute power-up request:', data);
+      
+      const context = getPlayerGameContext(socket.id);
+      if (!context) {
+        socket.emit('execute-powerup-response', {
+          success: false,
+          error: 'Not in an active game'
+        });
+        return;
+      }
+
+      // Validate input data
+      if (!data || typeof data.powerUpType !== 'string' || data.powerUpType.length === 0) {
+        socket.emit('execute-powerup-response', {
+          success: false,
+          error: 'Invalid power-up type'
+        });
+        return;
+      }
+
+      if (!data.params || typeof data.params !== 'object') {
+        socket.emit('execute-powerup-response', {
+          success: false,
+          error: 'Invalid power-up parameters'
+        });
+        return;
+      }
+
+      // Check if it's the player's turn
+      const currentPlayer = context.gameState.players[context.gameState.currentPlayerIndex];
+      if (currentPlayer.id !== context.player.id) {
+        socket.emit('execute-powerup-response', {
+          success: false,
+          error: 'Not your turn'
+        });
+        return;
+      }
+
+      const result = gameService.executePowerUp(context.roomId, context.player.id, data.powerUpType, data.params);
+      
+      socket.emit('execute-powerup-response', {
+        success: result.success,
+        errors: result.errors
+      });
+      
+      if (result.success) {
+        // Broadcast updated game state to all players
+        broadcastGameState(context.roomId);
+        
+        // Notify all players about the power-up execution
+        io.to(context.roomId).emit('powerup-executed', {
+          playerId: context.player.id,
+          playerName: context.player.name,
+          powerUpType: data.powerUpType
+        });
+      }
+    } catch (error) {
+      console.error('Error in execute-powerup:', error);
+      socket.emit('execute-powerup-response', {
+        success: false,
+        errors: ['An error occurred while executing the power-up']
+      });
+    }
+  });
 }

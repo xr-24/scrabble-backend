@@ -45,12 +45,64 @@ const POWER_UP_DEFINITIONS: Record<PowerUpType, Omit<PowerUp, 'id'>> = {
     emoji: '🌙',
     name: 'Crescent Moon',
     description: 'Adds an extra blank tile to your rack.'
+  },
+  BURN: {
+    type: 'BURN',
+    emoji: '🔥',
+    name: 'Burn',
+    description: 'Choose 2 tiles to force your opponent to discard from their rack.'
+  },
+  TILE_THIEF: {
+    type: 'TILE_THIEF',
+    emoji: '🗡️',
+    name: 'Tile Thief',
+    description: 'Steal 1 tile from opponent\'s rack. Your rack expands to 8/7 for this turn.'
+  },
+  MULTIPLIER_THIEF: {
+    type: 'MULTIPLIER_THIEF',
+    emoji: '💎',
+    name: 'Multiplier Thief',
+    description: 'Steal a Double Word or Triple Word multiplier from the board to use on your next word.'
+  },
+  DUPLICATE: {
+    type: 'DUPLICATE',
+    emoji: '🪞',
+    name: 'Duplicate',
+    description: 'Copy one of your own tiles to create an exact duplicate.'
+  },
+  EXTRA_TURN: {
+    type: 'EXTRA_TURN',
+    emoji: '🔄',
+    name: 'Extra Turn',
+    description: 'Play again immediately after your current turn ends.'
+  },
+  TILE_FREEZE: {
+    type: 'TILE_FREEZE',
+    emoji: '🧊',
+    name: 'Tile Freeze',
+    description: 'Freeze a tile on the board - opponents cannot connect new tiles to it on their next turn.'
+  },
+  SILENCE: {
+    type: 'SILENCE',
+    emoji: '🤐',
+    name: 'Silence',
+    description: 'Lock 3 random tiles on your opponent\'s rack, preventing them from being used on their next turn.'
+  },
+  EXTRA_TILES: {
+    type: 'EXTRA_TILES',
+    emoji: '📦',
+    name: 'Extra Tiles',
+    description: 'Get 3 bonus tiles for this turn only. Your rack expands to 10/7 temporarily.'
   }
 };
 
 function generateRandomPowerUps(): PowerUp[] {
-  const powerUpTypes: PowerUpType[] = ['SCROLL', 'HEADSTONE', 'WILTED_ROSE', 'CRESCENT_MOON'];
-  const numPowerUps = 6 + Math.floor(Math.random() * 5); // 6-10 power-ups
+  const powerUpTypes: PowerUpType[] = [
+    'SCROLL', 'HEADSTONE', 'WILTED_ROSE', 'CRESCENT_MOON',
+    'BURN', 'TILE_THIEF', 'MULTIPLIER_THIEF', 'DUPLICATE',
+    'EXTRA_TURN', 'TILE_FREEZE', 'SILENCE', 'EXTRA_TILES'
+  ];
+  const numPowerUps = 10 + Math.floor(Math.random() * 6); // 10-15 power-ups
   const selectedPowerUps: PowerUp[] = [];
 
   for (let i = 0; i < numPowerUps; i++) {

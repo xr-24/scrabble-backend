@@ -62,3 +62,38 @@ export function drawTiles(tileBag: Tile[], count: number): { drawnTiles: Tile[];
   const remainingBag = tileBag.slice(count);
   return { drawnTiles, remainingBag };
 }
+
+// New powerup tile creation functions
+export function createPowerUpTile(type: 'BURN' | 'TILE_THIEF' | 'MULTIPLIER_THIEF' | 'DUPLICATE' | 'EXTRA_TURN' | 'TILE_FREEZE' | 'SILENCE' | 'EXTRA_TILES'): Tile {
+  const powerUpData = {
+    'BURN': { emoji: '🔥', letter: '🔥' },
+    'TILE_THIEF': { emoji: '🗡️', letter: '🗡️' },
+    'MULTIPLIER_THIEF': { emoji: '💎', letter: '💎' },
+    'DUPLICATE': { emoji: '🪞', letter: '🪞' },
+    'EXTRA_TURN': { emoji: '🔄', letter: '🔄' },
+    'TILE_FREEZE': { emoji: '🧊', letter: '🧊' },
+    'SILENCE': { emoji: '🤐', letter: '🤐' },
+    'EXTRA_TILES': { emoji: '📦', letter: '📦' }
+  };
+
+  const data = powerUpData[type];
+  
+  return {
+    id: `powerup-${type.toLowerCase()}-${Date.now()}-${Math.random()}`,
+    letter: data.letter,
+    value: 0,
+    isPowerUp: true,
+    powerUpType: type,
+    emoji: data.emoji
+  };
+}
+
+export function createRandomPowerUpTile(): Tile {
+  const powerUpTypes: Array<'BURN' | 'TILE_THIEF' | 'MULTIPLIER_THIEF' | 'DUPLICATE' | 'EXTRA_TURN' | 'TILE_FREEZE' | 'SILENCE' | 'EXTRA_TILES'> = [
+    'BURN', 'TILE_THIEF', 'MULTIPLIER_THIEF', 'DUPLICATE', 
+    'EXTRA_TURN', 'TILE_FREEZE', 'SILENCE', 'EXTRA_TILES'
+  ];
+  
+  const randomType = powerUpTypes[Math.floor(Math.random() * powerUpTypes.length)];
+  return createPowerUpTile(randomType);
+}

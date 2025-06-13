@@ -8,6 +8,11 @@ export interface GameModifiers {
   addBlankTile: boolean;               // For CRESCENT_MOON
   swapWithOpponent: boolean;           // For WILTED_ROSE
   guaranteedVowelSwap: boolean;        // For HEADSTONE
+  allowRackExpansion: boolean;         // For TILE_THIEF, EXTRA_TILES
+  maxRackSize: number;                 // 8 for TILE_THIEF, 10 for EXTRA_TILES
+  frozenTiles: Array<{row: number, col: number}>; // For TILE_FREEZE
+  silencedTiles: string[];             // tile IDs for SILENCE
+  stolenMultiplier: {type: 'DOUBLE_WORD' | 'TRIPLE_WORD', position: {row: number, col: number}} | null; // For MULTIPLIER_THIEF
 }
 
 export class PowerUpManager {
@@ -19,7 +24,12 @@ export class PowerUpManager {
       allowWildCards: false,
       addBlankTile: false,
       swapWithOpponent: false,
-      guaranteedVowelSwap: false
+      guaranteedVowelSwap: false,
+      allowRackExpansion: false,
+      maxRackSize: 7,
+      frozenTiles: [],
+      silencedTiles: [],
+      stolenMultiplier: null
     };
   }
 
@@ -43,6 +53,19 @@ export class PowerUpManager {
       case 'CRESCENT_MOON':
         modifiers.addBlankTile = true;
         break;
+      case 'TILE_THIEF':
+        modifiers.allowRackExpansion = true;
+        modifiers.maxRackSize = 8;
+        break;
+      case 'EXTRA_TILES':
+        modifiers.allowRackExpansion = true;
+        modifiers.maxRackSize = 10;
+        break;
+      case 'EXTRA_TURN':
+        modifiers.skipTurnAdvancement = true;
+        break;
+      // BURN, MULTIPLIER_THIEF, DUPLICATE, TILE_FREEZE, SILENCE require special handling
+      // and don't modify the basic game modifiers
     }
 
     return modifiers;
@@ -191,6 +214,22 @@ export class PowerUpManager {
         return 'Wilted Rose';
       case 'CRESCENT_MOON':
         return 'Crescent Moon';
+      case 'BURN':
+        return 'Burn';
+      case 'TILE_THIEF':
+        return 'Tile Thief';
+      case 'MULTIPLIER_THIEF':
+        return 'Multiplier Thief';
+      case 'DUPLICATE':
+        return 'Duplicate';
+      case 'EXTRA_TURN':
+        return 'Extra Turn';
+      case 'TILE_FREEZE':
+        return 'Tile Freeze';
+      case 'SILENCE':
+        return 'Silence';
+      case 'EXTRA_TILES':
+        return 'Extra Tiles';
       default:
         return 'Unknown';
     }
@@ -206,6 +245,22 @@ export class PowerUpManager {
         return 'Swaps you and your opponents\' tiles.';
       case 'CRESCENT_MOON':
         return 'Adds an extra blank tile to your rack.';
+      case 'BURN':
+        return 'Choose 2 tiles to force your opponent to discard from their rack.';
+      case 'TILE_THIEF':
+        return 'Steal 1 tile from opponent\'s rack. Your rack expands to 8/7 for this turn.';
+      case 'MULTIPLIER_THIEF':
+        return 'Steal a Double Word or Triple Word multiplier from the board to use on your next word.';
+      case 'DUPLICATE':
+        return 'Copy one of your own tiles to create an exact duplicate.';
+      case 'EXTRA_TURN':
+        return 'Play again immediately after your current turn ends.';
+      case 'TILE_FREEZE':
+        return 'Freeze a tile on the board - opponents cannot connect new tiles to it on their next turn.';
+      case 'SILENCE':
+        return 'Lock 3 random tiles on your opponent\'s rack, preventing them from being used on their next turn.';
+      case 'EXTRA_TILES':
+        return 'Get 3 bonus tiles for this turn only. Your rack expands to 10/7 temporarily.';
       default:
         return 'Unknown power-up';
     }
@@ -325,6 +380,154 @@ export class PowerUpManager {
     return {
       finalTiles,
       updatedBag
+    };
+  }
+
+  // New powerup execution methods
+  static executeBurn(
+    targetPlayer: Player,
+    targetTileIds: string[]
+  ): { success: boolean; updatedPlayer: Player; error?: string } {
+    if (targetTileIds.length !== 2) {
+      return {
+        success: false,
+        updatedPlayer: targetPlayer,
+        error: 'Must select exactly 2 tiles to burn'
+      };
+    }
+
+    // Remove the selected tiles from target player's rack
+    const updatedTiles = targetPlayer.tiles.filter(tile => !targetTileIds.includes(tile.id));
+    
+    if (updatedTiles.length !== targetPlayer.tiles.length - 2) {
+      return {
+        success: false,
+        updatedPlayer: targetPlayer,
+        error: 'One or more selected tiles not found in player rack'
+      };
+    }
+
+    return {
+      success: true,
+      updatedPlayer: {
+        ...targetPlayer,
+        tiles: updatedTiles
+      }
+    };
+  }
+
+  static executeTileThief(
+    currentPlayer: Player,
+    targetPlayer: Player,
+    targetTileId: string
+  ): { success: boolean; updatedCurrentPlayer: Player; updatedTargetPlayer: Player; error?: string } {
+    const targetTileIndex = targetPlayer.tiles.findIndex(tile => tile.id === targetTileId);
+    
+    if (targetTileIndex === -1) {
+      return {
+        success: false,
+        updatedCurrentPlayer: currentPlayer,
+        updatedTargetPlayer: targetPlayer,
+        error: 'Target tile not found in opponent rack'
+      };
+    }
+
+    const stolenTile = targetPlayer.tiles[targetTileIndex];
+    const updatedTargetTiles = targetPlayer.tiles.filter((_, index) => index !== targetTileIndex);
+    const updatedCurrentTiles = [...currentPlayer.tiles, stolenTile];
+
+    return {
+      success: true,
+      updatedCurrentPlayer: {
+        ...currentPlayer,
+        tiles: updatedCurrentTiles
+      },
+      updatedTargetPlayer: {
+        ...targetPlayer,
+        tiles: updatedTargetTiles
+      }
+    };
+  }
+
+  static executeDuplicate(
+    player: Player,
+    sourceTileId: string
+  ): { success: boolean; updatedPlayer: Player; error?: string } {
+    const sourceTile = player.tiles.find(tile => tile.id === sourceTileId);
+    
+    if (!sourceTile) {
+      return {
+        success: false,
+        updatedPlayer: player,
+        error: 'Source tile not found in player rack'
+      };
+    }
+
+    // Create a duplicate tile with a new ID
+    const duplicateTile: Tile = {
+      ...sourceTile,
+      id: `duplicate-${sourceTile.id}-${Date.now()}-${Math.random()}`
+    };
+
+    return {
+      success: true,
+      updatedPlayer: {
+        ...player,
+        tiles: [...player.tiles, duplicateTile]
+      }
+    };
+  }
+
+  static executeExtraTiles(
+    player: Player,
+    tileBag: Tile[]
+  ): { success: boolean; updatedPlayer: Player; updatedBag: Tile[]; error?: string } {
+    if (tileBag.length < 3) {
+      return {
+        success: false,
+        updatedPlayer: player,
+        updatedBag: tileBag,
+        error: 'Not enough tiles in bag for extra tiles powerup'
+      };
+    }
+
+    // Draw 3 extra tiles
+    const extraTiles = tileBag.slice(0, 3);
+    const remainingBag = tileBag.slice(3);
+
+    return {
+      success: true,
+      updatedPlayer: {
+        ...player,
+        tiles: [...player.tiles, ...extraTiles]
+      },
+      updatedBag: remainingBag
+    };
+  }
+
+  static executeSilence(
+    targetPlayer: Player
+  ): { success: boolean; updatedPlayer: Player; silencedTileIds: string[]; error?: string } {
+    const availableTiles = targetPlayer.tiles.filter(tile => !tile.isPowerUp);
+    
+    if (availableTiles.length === 0) {
+      return {
+        success: false,
+        updatedPlayer: targetPlayer,
+        silencedTileIds: [],
+        error: 'No tiles available to silence'
+      };
+    }
+
+    // Randomly select up to 3 tiles to silence
+    const tilesToSilence = Math.min(3, availableTiles.length);
+    const shuffled = [...availableTiles].sort(() => Math.random() - 0.5);
+    const silencedTileIds = shuffled.slice(0, tilesToSilence).map(tile => tile.id);
+
+    return {
+      success: true,
+      updatedPlayer: targetPlayer, // Player object doesn't change, but we track silenced tiles separately
+      silencedTileIds
     };
   }
 }

@@ -21,7 +21,15 @@ export type PowerUpType =
   | 'SCROLL'           // 📜 - unlimited tile usage
   | 'HEADSTONE'        // 🪦 - swap all tiles with vowel guarantee
   | 'WILTED_ROSE'      // 🥀 - swap tiles with opponent
-  | 'CRESCENT_MOON';   // 🌙 - add extra blank tile
+  | 'CRESCENT_MOON'    // 🌙 - add extra blank tile
+  | 'BURN'             // 🔥 - choose 2 tiles to force opponent to discard
+  | 'TILE_THIEF'       // 🗡️ - steal 1 tile from opponent's rack
+  | 'MULTIPLIER_THIEF' // 💎 - steal a DW/TW from the board
+  | 'DUPLICATE'        // 🪞 - copy one of your own tiles
+  | 'EXTRA_TURN'       // 🔄 - play again after current turn
+  | 'TILE_FREEZE'      // 🧊 - freeze a board tile, opponents can't connect to it
+  | 'SILENCE'          // 🤐 - lock 3 random opponent tiles for their next turn
+  | 'EXTRA_TILES';     // 📦 - get 3 bonus tiles for that turn only (10/7 rack)
 
 export interface BoardCell {
   tile: Tile | null;

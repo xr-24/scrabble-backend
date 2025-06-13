@@ -678,6 +678,231 @@ export class GameService {
     this.games.set(gameId, updatedGameState);
   }
 
+  // Execute power-up with parameters
+  executePowerUp(gameId: string, playerId: string, powerUpType: string, params: any): { success: boolean; errors: string[] } {
+    const gameState = this.games.get(gameId);
+    if (!gameState) {
+      return { success: false, errors: ['Game not found'] };
+    }
+
+    const player = gameState.players.find(p => p.id === playerId);
+    if (!player) {
+      return { success: false, errors: ['Player not found'] };
+    }
+
+    // Check if player has an active powerup of this type
+    if (!player.activePowerUpForTurn || player.activePowerUpForTurn.type !== powerUpType) {
+      return { success: false, errors: ['No active power-up of this type'] };
+    }
+
+    try {
+      switch (powerUpType) {
+        case 'BURN':
+          return this.executeBurnPowerUp(gameId, playerId, params.targetTileIds);
+        
+        case 'TILE_THIEF':
+          return this.executeTileThiefPowerUp(gameId, playerId, params.targetTileId);
+        
+        case 'MULTIPLIER_THIEF':
+          return this.executeMultiplierThiefPowerUp(gameId, playerId, params.row, params.col);
+        
+        case 'DUPLICATE':
+          return this.executeDuplicatePowerUp(gameId, playerId, params.sourceTileId);
+        
+        case 'TILE_FREEZE':
+          return this.executeTileFreezePowerUp(gameId, playerId, params.row, params.col);
+        
+        case 'SILENCE':
+          return this.executeSilencePowerUp(gameId, playerId);
+        
+        case 'EXTRA_TILES':
+          return this.executeExtraTilesPowerUp(gameId, playerId);
+        
+        case 'EXTRA_TURN':
+          return this.executeExtraTurnPowerUp(gameId, playerId);
+        
+        default:
+          return { success: false, errors: ['Unknown power-up type'] };
+      }
+    } catch (error) {
+      console.error('Error executing power-up:', error);
+      return { success: false, errors: ['Failed to execute power-up'] };
+    }
+  }
+
+  private executeBurnPowerUp(gameId: string, playerId: string, targetTileIds: string[]): { success: boolean; errors: string[] } {
+    const gameState = this.games.get(gameId);
+    if (!gameState) return { success: false, errors: ['Game not found'] };
+
+    // Find opponent (for now, assume 2-player game)
+    const opponent = gameState.players.find(p => p.id !== playerId);
+    if (!opponent) return { success: false, errors: ['No opponent found'] };
+
+    const result = PowerUpManager.executeBurn(opponent, targetTileIds);
+    if (result.success) {
+      const updatedPlayers = gameState.players.map(p =>
+        p.id === opponent.id ? result.updatedPlayer : p
+      );
+      
+      this.games.set(gameId, { ...gameState, players: updatedPlayers });
+      this.clearActivePowerUp(gameId, playerId);
+      return { success: true, errors: [] };
+    }
+    
+    return { success: false, errors: [result.error || 'Failed to execute burn'] };
+  }
+
+  private executeTileThiefPowerUp(gameId: string, playerId: string, targetTileId: string): { success: boolean; errors: string[] } {
+    const gameState = this.games.get(gameId);
+    if (!gameState) return { success: false, errors: ['Game not found'] };
+
+    const currentPlayer = gameState.players.find(p => p.id === playerId);
+    const opponent = gameState.players.find(p => p.id !== playerId);
+    
+    if (!currentPlayer || !opponent) {
+      return { success: false, errors: ['Players not found'] };
+    }
+
+    const result = PowerUpManager.executeTileThief(currentPlayer, opponent, targetTileId);
+    if (result.success) {
+      const updatedPlayers = gameState.players.map(p => {
+        if (p.id === playerId) return result.updatedCurrentPlayer;
+        if (p.id === opponent.id) return result.updatedTargetPlayer;
+        return p;
+      });
+      
+      this.games.set(gameId, { ...gameState, players: updatedPlayers });
+      this.clearActivePowerUp(gameId, playerId);
+      return { success: true, errors: [] };
+    }
+    
+    return { success: false, errors: [result.error || 'Failed to execute tile thief'] };
+  }
+
+  private executeMultiplierThiefPowerUp(gameId: string, playerId: string, row: number, col: number): { success: boolean; errors: string[] } {
+    const gameState = this.games.get(gameId);
+    if (!gameState) return { success: false, errors: ['Game not found'] };
+
+    // Validate board position
+    if (row < 0 || row >= 15 || col < 0 || col >= 15) {
+      return { success: false, errors: ['Invalid board position'] };
+    }
+
+    const cell = gameState.board[row][col];
+    if (!cell.multiplier || (cell.multiplier !== 'DOUBLE_WORD' && cell.multiplier !== 'TRIPLE_WORD')) {
+      return { success: false, errors: ['No word multiplier at this position'] };
+    }
+
+    // Store the stolen multiplier info (this would be used during scoring)
+    // For now, just clear the multiplier from the board
+    const updatedBoard = gameState.board.map((boardRow, r) =>
+      boardRow.map((boardCell, c) => {
+        if (r === row && c === col) {
+          return { ...boardCell, multiplier: null };
+        }
+        return boardCell;
+      })
+    );
+
+    this.games.set(gameId, { ...gameState, board: updatedBoard });
+    this.clearActivePowerUp(gameId, playerId);
+    return { success: true, errors: [] };
+  }
+
+  private executeDuplicatePowerUp(gameId: string, playerId: string, sourceTileId: string): { success: boolean; errors: string[] } {
+    const gameState = this.games.get(gameId);
+    if (!gameState) return { success: false, errors: ['Game not found'] };
+
+    const player = gameState.players.find(p => p.id === playerId);
+    if (!player) return { success: false, errors: ['Player not found'] };
+
+    const result = PowerUpManager.executeDuplicate(player, sourceTileId);
+    if (result.success) {
+      const updatedPlayers = gameState.players.map(p =>
+        p.id === playerId ? result.updatedPlayer : p
+      );
+      
+      this.games.set(gameId, { ...gameState, players: updatedPlayers });
+      this.clearActivePowerUp(gameId, playerId);
+      return { success: true, errors: [] };
+    }
+    
+    return { success: false, errors: [result.error || 'Failed to execute duplicate'] };
+  }
+
+  private executeTileFreezePowerUp(gameId: string, playerId: string, row: number, col: number): { success: boolean; errors: string[] } {
+    const gameState = this.games.get(gameId);
+    if (!gameState) return { success: false, errors: ['Game not found'] };
+
+    // Validate board position
+    if (row < 0 || row >= 15 || col < 0 || col >= 15) {
+      return { success: false, errors: ['Invalid board position'] };
+    }
+
+    const cell = gameState.board[row][col];
+    if (!cell.tile) {
+      return { success: false, errors: ['No tile at this position to freeze'] };
+    }
+
+    // Mark tile as frozen (this would be used during move validation)
+    // For now, we'll store this in game state metadata
+    // In a full implementation, you'd add frozen tile tracking to the game state
+    
+    this.clearActivePowerUp(gameId, playerId);
+    return { success: true, errors: [] };
+  }
+
+  private executeSilencePowerUp(gameId: string, playerId: string): { success: boolean; errors: string[] } {
+    const gameState = this.games.get(gameId);
+    if (!gameState) return { success: false, errors: ['Game not found'] };
+
+    // Find opponent
+    const opponent = gameState.players.find(p => p.id !== playerId);
+    if (!opponent) return { success: false, errors: ['No opponent found'] };
+
+    const result = PowerUpManager.executeSilence(opponent);
+    if (result.success) {
+      // Store silenced tile IDs (this would be used during move validation)
+      // For now, just clear the active powerup
+      this.clearActivePowerUp(gameId, playerId);
+      return { success: true, errors: [] };
+    }
+    
+    return { success: false, errors: [result.error || 'Failed to execute silence'] };
+  }
+
+  private executeExtraTilesPowerUp(gameId: string, playerId: string): { success: boolean; errors: string[] } {
+    const gameState = this.games.get(gameId);
+    if (!gameState) return { success: false, errors: ['Game not found'] };
+
+    const player = gameState.players.find(p => p.id === playerId);
+    if (!player) return { success: false, errors: ['Player not found'] };
+
+    const result = PowerUpManager.executeExtraTiles(player, gameState.tileBag);
+    if (result.success) {
+      const updatedPlayers = gameState.players.map(p =>
+        p.id === playerId ? result.updatedPlayer : p
+      );
+      
+      this.games.set(gameId, { 
+        ...gameState, 
+        players: updatedPlayers,
+        tileBag: result.updatedBag 
+      });
+      this.clearActivePowerUp(gameId, playerId);
+      return { success: true, errors: [] };
+    }
+    
+    return { success: false, errors: [result.error || 'Failed to execute extra tiles'] };
+  }
+
+  private executeExtraTurnPowerUp(gameId: string, playerId: string): { success: boolean; errors: string[] } {
+    // EXTRA_TURN is handled during move commit by checking skipTurnAdvancement
+    // No immediate action needed here, just clear the active powerup
+    this.clearActivePowerUp(gameId, playerId);
+    return { success: true, errors: [] };
+  }
+
   // Clean up finished games
   removeGame(gameId: string): void {
     this.games.delete(gameId);
