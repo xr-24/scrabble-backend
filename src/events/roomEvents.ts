@@ -338,6 +338,99 @@ export function registerRoomEvents(socket: Socket, io: Server) {
     }
   });
 
+  // Add AI player (host only)
+  socket.on('add-ai-player', () => {
+    try {
+      // Rate limiting
+      if (!RateLimiter.checkLimit(socket.id, 'add-ai', 2, 5000)) { // 2 per 5 seconds
+        socket.emit('ai-player-added', {
+          success: false,
+          error: 'Please wait before adding another AI player'
+        });
+        return;
+      }
+
+      console.log('Add AI player request from:', socket.id);
+      
+      const result = roomManager.addAIPlayer(socket.id);
+      
+      if (result.success && result.room) {
+        // Broadcast room update to all players in the room
+        io.to(result.room.id).emit('room-updated', result.room);
+        
+        // Send success response to the host
+        socket.emit('ai-player-added', {
+          success: true,
+          room: result.room
+        });
+        
+        console.log(`AI player added to room ${result.room.code}`);
+      } else {
+        socket.emit('ai-player-added', {
+          success: false,
+          error: result.error || 'Failed to add AI player'
+        });
+      }
+    } catch (error) {
+      console.error('Error in add-ai-player:', error);
+      socket.emit('ai-player-added', {
+        success: false,
+        error: 'An error occurred while adding AI player'
+      });
+    }
+  });
+
+  // Remove AI player (host only)
+  socket.on('remove-ai-player', (data: { aiPlayerId: string }) => {
+    try {
+      // Rate limiting
+      if (!RateLimiter.checkLimit(socket.id, 'remove-ai', 3, 5000)) { // 3 per 5 seconds
+        socket.emit('ai-player-removed', {
+          success: false,
+          error: 'Please wait before removing another AI player'
+        });
+        return;
+      }
+
+      console.log('Remove AI player request from:', socket.id, data);
+      
+      // Validate input
+      if (!data || typeof data !== 'object' || typeof data.aiPlayerId !== 'string') {
+        socket.emit('ai-player-removed', {
+          success: false,
+          error: 'Invalid AI player ID'
+        });
+        return;
+      }
+      
+      const result = roomManager.removeAIPlayer(socket.id, data.aiPlayerId);
+      
+      if (result.success && result.room) {
+        // Broadcast room update to all players in the room
+        io.to(result.room.id).emit('room-updated', result.room);
+        
+        // Send success response to the host
+        socket.emit('ai-player-removed', {
+          success: true,
+          room: result.room
+        });
+        
+        console.log(`AI player removed from room ${result.room.code}`);
+      } else {
+        socket.emit('ai-player-removed', {
+          success: false,
+          error: result.error || 'Failed to remove AI player'
+        });
+      }
+    } catch (error) {
+      console.error('Error in remove-ai-player:', error);
+      socket.emit('ai-player-removed', {
+        success: false,
+        error: 'An error occurred while removing AI player'
+      });
+    }
+  });
+
   // Send chat message
   socket.on('send-chat-message', (data: { message: string; playerColor?: string }) => {
     try {

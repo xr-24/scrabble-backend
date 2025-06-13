@@ -3,12 +3,13 @@ import { createEmptyBoard } from '../constants/board';
 import { createTileBag, drawTiles, TILES_PER_PLAYER } from '../constants/tiles';
 import { moveManager, type MoveResult } from './moveManager';
 import { PowerUpManager } from './PowerUpManager';
+import { aiService } from './AIService';
 
 export class GameService {
   private games: Map<string, GameState> = new Map();
   private pendingTiles: Map<string, PlacedTile[]> = new Map();
 
-  initializeGame(gameId: string, roomPlayers: Array<{id: string, name: string, color?: string}>): GameState {
+  initializeGame(gameId: string, roomPlayers: Array<{id: string, name: string, color?: string, isAI?: boolean, aiPersonality?: string}>): GameState {
     console.log('Initializing game with players:', roomPlayers);
     let tileBag = createTileBag();
     const players: Player[] = roomPlayers.map((roomPlayer) => {
@@ -22,7 +23,9 @@ export class GameService {
         hasEndedGame: false,
         activePowerUps: [],
         activePowerUpForTurn: null,
-        tileColor: roomPlayer.color || '#404040', // Default color if none set
+        tileColor: roomPlayer.color || '#404040',
+        isAI: roomPlayer.isAI || false,
+        aiPersonality: roomPlayer.aiPersonality,
       };
     });
 
@@ -39,6 +42,10 @@ export class GameService {
 
     this.games.set(gameId, gameState);
     this.pendingTiles.set(gameId, []);
+    
+    // Check if first player is AI and execute their move
+    this.checkAndExecuteAITurn(gameId);
+    
     console.log('Game initialized successfully');
     return gameState;
   }
@@ -290,6 +297,9 @@ export class GameService {
     };
 
     this.games.set(gameId, updatedGameState);
+
+    // Check if the next player is AI and execute their move
+    this.checkAndExecuteAITurn(gameId);
   }
 
   exchangeTiles(gameId: string, playerId: string, tileIds: string[]): { success: boolean; errors: string[] } {
@@ -397,6 +407,87 @@ export class GameService {
     return { success: true, errors: [] };
   }
 
+  // AI Move Handling
+  async executeAIMove(gameId: string): Promise<{ success: boolean; errors: string[] }> {
+    const gameState = this.games.get(gameId);
+    if (!gameState) {
+      return { success: false, errors: ['Game not found'] };
+    }
+
+    const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+    if (!currentPlayer || !currentPlayer.isAI) {
+      return { success: false, errors: ['Current player is not an AI'] };
+    }
+
+    if (currentPlayer.hasEndedGame) {
+      return { success: false, errors: ['AI player has ended the game'] };
+    }
+
+    try {
+      console.log(`Executing AI move for ${currentPlayer.name}`);
+      
+      // Generate AI move
+      const aiMove = await aiService.generateMove(gameState, currentPlayer.id);
+      
+      switch (aiMove.type) {
+        case 'WORD':
+          if (aiMove.tiles && aiMove.tiles.length > 0) {
+            return await this.executeAIWordMove(gameId, currentPlayer.id, aiMove.tiles);
+          } else {
+            console.warn(`AI ${currentPlayer.name} generated invalid word move`);
+            return this.passTurn(gameId, currentPlayer.id);
+          }
+          
+        case 'EXCHANGE':
+          if (aiMove.exchangeTileIds && aiMove.exchangeTileIds.length > 0) {
+            return this.exchangeTiles(gameId, currentPlayer.id, aiMove.exchangeTileIds);
+          } else {
+            console.warn(`AI ${currentPlayer.name} generated invalid exchange move`);
+            return this.passTurn(gameId, currentPlayer.id);
+          }
+          
+        case 'PASS':
+        default:
+          return this.passTurn(gameId, currentPlayer.id);
+      }
+    } catch (error) {
+      console.error(`Error executing AI move for ${currentPlayer.name}:`, error);
+      // Fallback to pass turn if AI move fails
+      return this.passTurn(gameId, currentPlayer.id);
+    }
+  }
+
+  private async executeAIWordMove(gameId: string, playerId: string, tiles: PlacedTile[]): Promise<{ success: boolean; errors: string[] }> {
+    // Set the pending tiles for the AI
+    this.pendingTiles.set(gameId, tiles);
+    
+    // Commit the move
+    const result = await this.commitMove(gameId, playerId);
+    
+    if (!result.success) {
+      // Clear pending tiles if move failed
+      this.pendingTiles.set(gameId, []);
+      console.warn(`AI move failed for player ${playerId}:`, result.errors);
+    }
+    
+    return result;
+  }
+
+  // Check if current player is AI and execute move if needed
+  async checkAndExecuteAITurn(gameId: string): Promise<void> {
+    const gameState = this.games.get(gameId);
+    if (!gameState) return;
+
+    const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+    if (currentPlayer && currentPlayer.isAI && !currentPlayer.hasEndedGame) {
+      // Add a small delay to make AI moves feel more natural
+      setTimeout(async () => {
+        await this.executeAIMove(gameId);
+      }, 1000 + Math.random() * 2000); // 1-3 second delay
+    }
+  }
+
+  // Rest of the methods remain the same...
   endGame(gameId: string, playerId: string): { success: boolean; errors: string[] } {
     const gameState = this.games.get(gameId);
     if (!gameState) {

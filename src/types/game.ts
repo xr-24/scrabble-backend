@@ -54,6 +54,8 @@ export interface Player {
   activePowerUps: PowerUp[];
   activePowerUpForTurn: PowerUp | null;
   tileColor?: string;
+  isAI?: boolean;
+  aiPersonality?: string;
 }
 
 export interface GameState {

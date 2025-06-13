@@ -1,5 +1,6 @@
 import type { Room, RoomPlayer, CreateRoomRequest, JoinRoomRequest, RoomInfo } from '../types/room';
 import { gameService } from './GameService';
+import { aiService } from './AIService';
 
 interface DisconnectedPlayer {
   player: RoomPlayer;
@@ -308,7 +309,13 @@ export class RoomManager {
 
     // Start the game
     room.isStarted = true;
-    const roomPlayers = room.players.map(p => ({ id: p.id, name: p.name, color: p.color }));
+    const roomPlayers = room.players.map(p => ({ 
+      id: p.id, 
+      name: p.name, 
+      color: p.color,
+      isAI: p.isAI,
+      aiPersonality: p.aiPersonality
+    }));
     const gameState = gameService.initializeGame(roomId, roomPlayers);
     room.gameState = gameState;
 
@@ -383,6 +390,88 @@ export class RoomManager {
     player.color = color;
 
     console.log(`Player ${player.name} updated color to ${color} in room ${room.code}`);
+
+    return {
+      success: true,
+      room: this.getRoomInfo(roomId)!
+    };
+  }
+
+  addAIPlayer(hostSocketId: string): { success: boolean; room?: RoomInfo; error?: string } {
+    const roomId = this.playerRooms.get(hostSocketId);
+    if (!roomId) {
+      return { success: false, error: 'Player is not in a room' };
+    }
+
+    const room = this.rooms.get(roomId);
+    if (!room) {
+      return { success: false, error: 'Room not found' };
+    }
+
+    const hostPlayer = room.players.find(p => p.socketId === hostSocketId);
+    if (!hostPlayer || !hostPlayer.isHost) {
+      return { success: false, error: 'Only the host can add AI players' };
+    }
+
+    if (room.isStarted) {
+      return { success: false, error: 'Cannot add AI players after game has started' };
+    }
+
+    if (room.players.length >= room.maxPlayers) {
+      return { success: false, error: 'Room is full' };
+    }
+
+    // Generate AI player
+    const aiName = aiService.generateDemonName();
+    const aiPlayer: RoomPlayer = {
+      id: `ai-player-${room.players.length}`,
+      name: aiName,
+      socketId: `ai-${Date.now()}-${Math.random()}`, // Fake socket ID for AI
+      isHost: false,
+      joinedAt: new Date(),
+      isAI: true,
+      aiPersonality: aiName
+    };
+
+    room.players.push(aiPlayer);
+
+    console.log(`AI player ${aiName} added to room ${room.code}`);
+
+    return {
+      success: true,
+      room: this.getRoomInfo(roomId)!
+    };
+  }
+
+  removeAIPlayer(hostSocketId: string, aiPlayerId: string): { success: boolean; room?: RoomInfo; error?: string } {
+    const roomId = this.playerRooms.get(hostSocketId);
+    if (!roomId) {
+      return { success: false, error: 'Player is not in a room' };
+    }
+
+    const room = this.rooms.get(roomId);
+    if (!room) {
+      return { success: false, error: 'Room not found' };
+    }
+
+    const hostPlayer = room.players.find(p => p.socketId === hostSocketId);
+    if (!hostPlayer || !hostPlayer.isHost) {
+      return { success: false, error: 'Only the host can remove AI players' };
+    }
+
+    if (room.isStarted) {
+      return { success: false, error: 'Cannot remove AI players after game has started' };
+    }
+
+    const aiPlayerIndex = room.players.findIndex(p => p.id === aiPlayerId && p.isAI);
+    if (aiPlayerIndex === -1) {
+      return { success: false, error: 'AI player not found' };
+    }
+
+    const aiPlayer = room.players[aiPlayerIndex];
+    room.players.splice(aiPlayerIndex, 1);
+
+    console.log(`AI player ${aiPlayer.name} removed from room ${room.code}`);
 
     return {
       success: true,
