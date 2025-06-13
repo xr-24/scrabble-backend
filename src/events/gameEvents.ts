@@ -1,6 +1,7 @@
 import { Socket, Server } from 'socket.io';
 import { roomManager } from '../services/RoomManager';
 import { gameService } from '../services/GameService';
+import { ValidationUtils, RateLimiter } from '../services/validation';
 import type { Tile } from '../types/game';
 
 export function registerGameEvents(socket: Socket, io: Server) {
@@ -37,109 +38,253 @@ export function registerGameEvents(socket: Socket, io: Server) {
     }
   }
 
+  // Validate tile ownership
+  function validateTileOwnership(tile: Tile, playerId: string, gameState: any): boolean {
+    const player = gameState.players.find((p: any) => p.id === playerId);
+    if (!player) return false;
+    
+    // For power-up tiles, just check if player has any power-up tiles
+    if (tile.isPowerUp) {
+      return player.tiles.some((t: any) => t.isPowerUp && t.powerUpType === tile.powerUpType);
+    }
+    
+    // For regular tiles, check exact match
+    return player.tiles.some((t: any) => 
+      t.id === tile.id && 
+      t.letter === tile.letter && 
+      t.value === tile.value &&
+      t.isBlank === tile.isBlank
+    );
+  }
+
+  // Validate tile data structure
+  function validateTileData(tile: any): { isValid: boolean; errors: string[] } {
+    const errors: string[] = [];
+    
+    if (!tile || typeof tile !== 'object') {
+      errors.push('Invalid tile data');
+      return { isValid: false, errors };
+    }
+    
+    if (typeof tile.id !== 'string' || tile.id.length === 0) {
+      errors.push('Invalid tile ID');
+    }
+    
+    if (typeof tile.letter !== 'string' || tile.letter.length !== 1) {
+      errors.push('Invalid tile letter');
+    }
+    
+    if (!Number.isInteger(tile.value) || tile.value < 0 || tile.value > 10) {
+      errors.push('Invalid tile value');
+    }
+    
+    return { isValid: errors.length === 0, errors };
+  }
+
   // Place a tile on the board
   socket.on('place-tile', (data: { tile: Tile; row: number; col: number }) => {
-    console.log('Place tile request:', data);
-    
-    const context = getPlayerGameContext(socket.id);
-    if (!context) {
-      console.log('No game context for place-tile');
-      socket.emit('place-tile-response', {
-        success: false,
-        error: 'Not in an active game'
-      });
-      return;
-    }
+    try {
+      // Rate limiting
+      if (!RateLimiter.checkLimit(socket.id, 'place-tile', 10, 1000)) { // 10 per second
+        socket.emit('place-tile-response', {
+          success: false,
+          error: 'Please slow down tile placement'
+        });
+        return;
+      }
 
-    // Check if it's the player's turn
-    const currentPlayer = context.gameState.players[context.gameState.currentPlayerIndex];
-    console.log('Place tile - Current player:', currentPlayer?.id, 'Requesting player:', context.player.id);
-    
-    if (currentPlayer.id !== context.player.id) {
-      console.log('Place tile - Not player turn');
-      socket.emit('place-tile-response', {
-        success: false,
-        error: 'Not your turn'
-      });
-      return;
-    }
-
-    const success = gameService.addPendingTile(context.roomId, data.tile, data.row, data.col);
-    console.log('Add pending tile result:', success);
-    
-    if (success) {
-      socket.emit('place-tile-response', {
-        success: true
-      });
+      console.log('Place tile request:', data);
       
-      // Broadcast updated pending tiles to all players
-      broadcastGameState(context.roomId);
-    } else {
+      const context = getPlayerGameContext(socket.id);
+      if (!context) {
+        console.log('No game context for place-tile');
+        socket.emit('place-tile-response', {
+          success: false,
+          error: 'Not in an active game'
+        });
+        return;
+      }
+
+      // Validate input data
+      if (!data || typeof data !== 'object') {
+        socket.emit('place-tile-response', {
+          success: false,
+          error: 'Invalid request data'
+        });
+        return;
+      }
+
+      // Validate tile data
+      const tileValidation = validateTileData(data.tile);
+      if (!tileValidation.isValid) {
+        socket.emit('place-tile-response', {
+          success: false,
+          error: tileValidation.errors[0] || 'Invalid tile'
+        });
+        return;
+      }
+
+      // Validate board position
+      const positionValidation = ValidationUtils.validateBoardPosition(data.row, data.col);
+      if (!positionValidation.isValid) {
+        socket.emit('place-tile-response', {
+          success: false,
+          error: positionValidation.errors[0] || 'Invalid board position'
+        });
+        return;
+      }
+
+      // Check if it's the player's turn
+      const currentPlayer = context.gameState.players[context.gameState.currentPlayerIndex];
+      console.log('Place tile - Current player:', currentPlayer?.id, 'Requesting player:', context.player.id);
+      
+      if (currentPlayer.id !== context.player.id) {
+        console.log('Place tile - Not player turn');
+        socket.emit('place-tile-response', {
+          success: false,
+          error: 'Not your turn'
+        });
+        return;
+      }
+
+      // Validate tile ownership (critical security check)
+      if (!validateTileOwnership(data.tile, context.player.id, context.gameState)) {
+        console.warn(`Player ${context.player.id} attempted to place tile they don't own:`, data.tile);
+        socket.emit('place-tile-response', {
+          success: false,
+          error: 'You do not own this tile'
+        });
+        return;
+      }
+
+      const success = gameService.addPendingTile(context.roomId, data.tile, positionValidation.row, positionValidation.col);
+      console.log('Add pending tile result:', success);
+      
+      if (success) {
+        socket.emit('place-tile-response', {
+          success: true
+        });
+        
+        // Broadcast updated pending tiles to all players
+        broadcastGameState(context.roomId);
+      } else {
+        socket.emit('place-tile-response', {
+          success: false,
+          error: 'Cannot place tile at that position'
+        });
+      }
+    } catch (error) {
+      console.error('Error in place-tile:', error);
       socket.emit('place-tile-response', {
         success: false,
-        error: 'Cannot place tile at that position'
+        error: 'An error occurred while placing the tile'
       });
     }
   });
 
   // Remove a tile from the board
   socket.on('remove-tile', (data: { row: number; col: number }) => {
-    console.log('Remove tile request:', data);
-    
-    const context = getPlayerGameContext(socket.id);
-    if (!context) {
+    try {
+      // Rate limiting
+      if (!RateLimiter.checkLimit(socket.id, 'remove-tile', 10, 1000)) { // 10 per second
+        socket.emit('remove-tile-response', {
+          success: false,
+          error: 'Please slow down tile removal'
+        });
+        return;
+      }
+
+      console.log('Remove tile request:', data);
+      
+      const context = getPlayerGameContext(socket.id);
+      if (!context) {
+        socket.emit('remove-tile-response', {
+          success: false,
+          error: 'Not in an active game'
+        });
+        return;
+      }
+
+      // Validate input data
+      if (!data || typeof data !== 'object') {
+        socket.emit('remove-tile-response', {
+          success: false,
+          error: 'Invalid request data'
+        });
+        return;
+      }
+
+      // Validate board position
+      const positionValidation = ValidationUtils.validateBoardPosition(data.row, data.col);
+      if (!positionValidation.isValid) {
+        socket.emit('remove-tile-response', {
+          success: false,
+          error: positionValidation.errors[0] || 'Invalid board position'
+        });
+        return;
+      }
+
+      // Check if it's the player's turn
+      const currentPlayer = context.gameState.players[context.gameState.currentPlayerIndex];
+      if (currentPlayer.id !== context.player.id) {
+        socket.emit('remove-tile-response', {
+          success: false,
+          error: 'Not your turn'
+        });
+        return;
+      }
+
+      const removedTile = gameService.removePendingTile(context.roomId, positionValidation.row, positionValidation.col);
+      
+      socket.emit('remove-tile-response', {
+        success: true,
+        removedTile
+      });
+      
+      // Broadcast updated pending tiles to all players
+      broadcastGameState(context.roomId);
+    } catch (error) {
+      console.error('Error in remove-tile:', error);
       socket.emit('remove-tile-response', {
         success: false,
-        error: 'Not in an active game'
+        error: 'An error occurred while removing the tile'
       });
-      return;
     }
-
-    // Check if it's the player's turn
-    const currentPlayer = context.gameState.players[context.gameState.currentPlayerIndex];
-    if (currentPlayer.id !== context.player.id) {
-      socket.emit('remove-tile-response', {
-        success: false,
-        error: 'Not your turn'
-      });
-      return;
-    }
-
-    const removedTile = gameService.removePendingTile(context.roomId, data.row, data.col);
-    
-    socket.emit('remove-tile-response', {
-      success: true,
-      removedTile
-    });
-    
-    // Broadcast updated pending tiles to all players
-    broadcastGameState(context.roomId);
   });
 
   // Commit the current move
   socket.on('commit-move', async () => {
-    console.log('Commit move request from:', socket.id);
-    
-    const context = getPlayerGameContext(socket.id);
-    if (!context) {
-      socket.emit('commit-move-response', {
-        success: false,
-        error: 'Not in an active game'
-      });
-      return;
-    }
-
-    // Check if it's the player's turn
-    const currentPlayer = context.gameState.players[context.gameState.currentPlayerIndex];
-    if (currentPlayer.id !== context.player.id) {
-      socket.emit('commit-move-response', {
-        success: false,
-        error: 'Not your turn'
-      });
-      return;
-    }
-
     try {
+      // Rate limiting
+      if (!RateLimiter.checkLimit(socket.id, 'commit-move', 1, 2000)) { // 1 per 2 seconds
+        socket.emit('commit-move-response', {
+          success: false,
+          error: 'Please wait before committing another move'
+        });
+        return;
+      }
+
+      console.log('Commit move request from:', socket.id);
+      
+      const context = getPlayerGameContext(socket.id);
+      if (!context) {
+        socket.emit('commit-move-response', {
+          success: false,
+          error: 'Not in an active game'
+        });
+        return;
+      }
+
+      // Check if it's the player's turn
+      const currentPlayer = context.gameState.players[context.gameState.currentPlayerIndex];
+      if (currentPlayer.id !== context.player.id) {
+        socket.emit('commit-move-response', {
+          success: false,
+          error: 'Not your turn'
+        });
+        return;
+      }
+
       const result = await gameService.commitMove(context.roomId, context.player.id);
       
       socket.emit('commit-move-response', {
@@ -170,235 +315,423 @@ export function registerGameEvents(socket: Socket, io: Server) {
 
   // Exchange tiles
   socket.on('exchange-tiles', (data: { tileIds: string[] }) => {
-    console.log('Exchange tiles request:', data);
-    
-    const context = getPlayerGameContext(socket.id);
-    if (!context) {
-      socket.emit('exchange-tiles-response', {
-        success: false,
-        error: 'Not in an active game'
-      });
-      return;
-    }
+    try {
+      // Rate limiting
+      if (!RateLimiter.checkLimit(socket.id, 'exchange-tiles', 1, 5000)) { // 1 per 5 seconds
+        socket.emit('exchange-tiles-response', {
+          success: false,
+          error: 'Please wait before exchanging tiles again'
+        });
+        return;
+      }
 
-    // Check if it's the player's turn
-    const currentPlayer = context.gameState.players[context.gameState.currentPlayerIndex];
-    if (currentPlayer.id !== context.player.id) {
-      socket.emit('exchange-tiles-response', {
-        success: false,
-        error: 'Not your turn'
-      });
-      return;
-    }
-
-    const result = gameService.exchangeTiles(context.roomId, context.player.id, data.tileIds);
-    
-    socket.emit('exchange-tiles-response', {
-      success: result.success,
-      errors: result.errors
-    });
-    
-    if (result.success) {
-      // Broadcast updated game state to all players
-      broadcastGameState(context.roomId);
+      console.log('Exchange tiles request:', data);
       
-      // Notify all players about the exchange
-      io.to(context.roomId).emit('tiles-exchanged', {
-        playerId: context.player.id,
-        playerName: context.player.name,
-        tilesCount: data.tileIds.length
+      const context = getPlayerGameContext(socket.id);
+      if (!context) {
+        socket.emit('exchange-tiles-response', {
+          success: false,
+          error: 'Not in an active game'
+        });
+        return;
+      }
+
+      // Validate input data
+      if (!data || !Array.isArray(data.tileIds)) {
+        socket.emit('exchange-tiles-response', {
+          success: false,
+          error: 'Invalid tile IDs'
+        });
+        return;
+      }
+
+      // Validate tile IDs
+      if (data.tileIds.length === 0 || data.tileIds.length > 7) {
+        socket.emit('exchange-tiles-response', {
+          success: false,
+          error: 'Invalid number of tiles to exchange'
+        });
+        return;
+      }
+
+      // Validate that all tile IDs are strings
+      if (!data.tileIds.every(id => typeof id === 'string' && id.length > 0)) {
+        socket.emit('exchange-tiles-response', {
+          success: false,
+          error: 'Invalid tile ID format'
+        });
+        return;
+      }
+
+      // Check if it's the player's turn
+      const currentPlayer = context.gameState.players[context.gameState.currentPlayerIndex];
+      if (currentPlayer.id !== context.player.id) {
+        socket.emit('exchange-tiles-response', {
+          success: false,
+          error: 'Not your turn'
+        });
+        return;
+      }
+
+      // Validate tile ownership
+      const player = context.gameState.players.find((p: any) => p.id === context.player.id);
+      if (!player) {
+        socket.emit('exchange-tiles-response', {
+          success: false,
+          error: 'Player not found'
+        });
+        return;
+      }
+
+      const playerTileIds = player.tiles.map((t: any) => t.id);
+      const invalidTileIds = data.tileIds.filter(id => !playerTileIds.includes(id));
+      
+      if (invalidTileIds.length > 0) {
+        console.warn(`Player ${context.player.id} attempted to exchange tiles they don't own:`, invalidTileIds);
+        socket.emit('exchange-tiles-response', {
+          success: false,
+          error: 'You do not own some of the tiles you are trying to exchange'
+        });
+        return;
+      }
+
+      const result = gameService.exchangeTiles(context.roomId, context.player.id, data.tileIds);
+      
+      socket.emit('exchange-tiles-response', {
+        success: result.success,
+        errors: result.errors
+      });
+      
+      if (result.success) {
+        // Broadcast updated game state to all players
+        broadcastGameState(context.roomId);
+        
+        // Notify all players about the exchange
+        io.to(context.roomId).emit('tiles-exchanged', {
+          playerId: context.player.id,
+          playerName: context.player.name,
+          tilesCount: data.tileIds.length
+        });
+      }
+    } catch (error) {
+      console.error('Error in exchange-tiles:', error);
+      socket.emit('exchange-tiles-response', {
+        success: false,
+        errors: ['An error occurred while exchanging tiles']
       });
     }
   });
 
   // Pass turn
   socket.on('pass-turn', () => {
-    console.log('Pass turn request from:', socket.id);
-    
-    const context = getPlayerGameContext(socket.id);
-    if (!context) {
-      socket.emit('pass-turn-response', {
-        success: false,
-        error: 'Not in an active game'
-      });
-      return;
-    }
+    try {
+      // Rate limiting
+      if (!RateLimiter.checkLimit(socket.id, 'pass-turn', 1, 1000)) { // 1 per second
+        socket.emit('pass-turn-response', {
+          success: false,
+          error: 'Please wait before passing turn again'
+        });
+        return;
+      }
 
-    // Check if it's the player's turn
-    const currentPlayer = context.gameState.players[context.gameState.currentPlayerIndex];
-    if (currentPlayer.id !== context.player.id) {
-      socket.emit('pass-turn-response', {
-        success: false,
-        error: 'Not your turn'
-      });
-      return;
-    }
-
-    const result = gameService.passTurn(context.roomId, context.player.id);
-    
-    socket.emit('pass-turn-response', {
-      success: result.success,
-      errors: result.errors
-    });
-    
-    if (result.success) {
-      // Broadcast updated game state to all players
-      broadcastGameState(context.roomId);
+      console.log('Pass turn request from:', socket.id);
       
-      // Notify all players about the pass
-      io.to(context.roomId).emit('turn-passed', {
-        playerId: context.player.id,
-        playerName: context.player.name
+      const context = getPlayerGameContext(socket.id);
+      if (!context) {
+        socket.emit('pass-turn-response', {
+          success: false,
+          error: 'Not in an active game'
+        });
+        return;
+      }
+
+      // Check if it's the player's turn
+      const currentPlayer = context.gameState.players[context.gameState.currentPlayerIndex];
+      if (currentPlayer.id !== context.player.id) {
+        socket.emit('pass-turn-response', {
+          success: false,
+          error: 'Not your turn'
+        });
+        return;
+      }
+
+      const result = gameService.passTurn(context.roomId, context.player.id);
+      
+      socket.emit('pass-turn-response', {
+        success: result.success,
+        errors: result.errors
+      });
+      
+      if (result.success) {
+        // Broadcast updated game state to all players
+        broadcastGameState(context.roomId);
+        
+        // Notify all players about the pass
+        io.to(context.roomId).emit('turn-passed', {
+          playerId: context.player.id,
+          playerName: context.player.name
+        });
+      }
+    } catch (error) {
+      console.error('Error in pass-turn:', error);
+      socket.emit('pass-turn-response', {
+        success: false,
+        errors: ['An error occurred while passing turn']
       });
     }
   });
 
   // End game
   socket.on('end-game', () => {
-    console.log('End game request from:', socket.id);
-    
-    const context = getPlayerGameContext(socket.id);
-    if (!context) {
+    try {
+      // Rate limiting
+      if (!RateLimiter.checkLimit(socket.id, 'end-game', 1, 5000)) { // 1 per 5 seconds
+        socket.emit('end-game-response', {
+          success: false,
+          error: 'Please wait before ending game again'
+        });
+        return;
+      }
+
+      console.log('End game request from:', socket.id);
+      
+      const context = getPlayerGameContext(socket.id);
+      if (!context) {
+        socket.emit('end-game-response', {
+          success: false,
+          error: 'Not in an active game'
+        });
+        return;
+      }
+
+      const result = gameService.endGame(context.roomId, context.player.id);
+      
+      socket.emit('end-game-response', {
+        success: result.success,
+        errors: result.errors
+      });
+      
+      if (result.success) {
+        // Broadcast updated game state to all players
+        broadcastGameState(context.roomId);
+        
+        // Notify all players that someone ended their game
+        io.to(context.roomId).emit('player-ended-game', {
+          playerId: context.player.id,
+          playerName: context.player.name
+        });
+      }
+    } catch (error) {
+      console.error('Error in end-game:', error);
       socket.emit('end-game-response', {
         success: false,
-        error: 'Not in an active game'
-      });
-      return;
-    }
-
-    const result = gameService.endGame(context.roomId, context.player.id);
-    
-    socket.emit('end-game-response', {
-      success: result.success,
-      errors: result.errors
-    });
-    
-    if (result.success) {
-      // Broadcast updated game state to all players
-      broadcastGameState(context.roomId);
-      
-      // Notify all players that someone ended their game
-      io.to(context.roomId).emit('player-ended-game', {
-        playerId: context.player.id,
-        playerName: context.player.name
+        errors: ['An error occurred while ending the game']
       });
     }
   });
 
   // Activate power-up
   socket.on('activate-powerup', (data: { powerUpId: string }) => {
-    console.log('Activate power-up request:', data);
-    
-    const context = getPlayerGameContext(socket.id);
-    if (!context) {
+    try {
+      // Rate limiting
+      if (!RateLimiter.checkLimit(socket.id, 'activate-powerup', 3, 5000)) { // 3 per 5 seconds
+        socket.emit('activate-powerup-response', {
+          success: false,
+          error: 'Please wait before activating another power-up'
+        });
+        return;
+      }
+
+      console.log('Activate power-up request:', data);
+      
+      const context = getPlayerGameContext(socket.id);
+      if (!context) {
+        socket.emit('activate-powerup-response', {
+          success: false,
+          error: 'Not in an active game'
+        });
+        return;
+      }
+
+      // Validate input data
+      if (!data || typeof data.powerUpId !== 'string' || data.powerUpId.length === 0) {
+        socket.emit('activate-powerup-response', {
+          success: false,
+          error: 'Invalid power-up ID'
+        });
+        return;
+      }
+
+      const result = gameService.activatePowerUp(context.roomId, context.player.id, data.powerUpId);
+      
+      socket.emit('activate-powerup-response', {
+        success: result.success,
+        errors: result.errors
+      });
+      
+      if (result.success) {
+        // Broadcast updated game state to all players
+        broadcastGameState(context.roomId);
+        
+        // Notify all players about the power-up activation
+        io.to(context.roomId).emit('powerup-activated', {
+          playerId: context.player.id,
+          playerName: context.player.name,
+          powerUpId: data.powerUpId
+        });
+      }
+    } catch (error) {
+      console.error('Error in activate-powerup:', error);
       socket.emit('activate-powerup-response', {
         success: false,
-        error: 'Not in an active game'
-      });
-      return;
-    }
-
-    const result = gameService.activatePowerUp(context.roomId, context.player.id, data.powerUpId);
-    
-    socket.emit('activate-powerup-response', {
-      success: result.success,
-      errors: result.errors
-    });
-    
-    if (result.success) {
-      // Broadcast updated game state to all players
-      broadcastGameState(context.roomId);
-      
-      // Notify all players about the power-up activation
-      io.to(context.roomId).emit('powerup-activated', {
-        playerId: context.player.id,
-        playerName: context.player.name,
-        powerUpId: data.powerUpId
+        errors: ['An error occurred while activating the power-up']
       });
     }
   });
 
   // Activate power-up tile
   socket.on('activate-powerup-tile', (data: { tileId: string }) => {
-    console.log('Activate power-up tile request:', data);
-    
-    const context = getPlayerGameContext(socket.id);
-    if (!context) {
+    try {
+      // Rate limiting
+      if (!RateLimiter.checkLimit(socket.id, 'activate-powerup-tile', 3, 5000)) { // 3 per 5 seconds
+        socket.emit('activate-powerup-tile-response', {
+          success: false,
+          error: 'Please wait before activating another power-up tile'
+        });
+        return;
+      }
+
+      console.log('Activate power-up tile request:', data);
+      
+      const context = getPlayerGameContext(socket.id);
+      if (!context) {
+        socket.emit('activate-powerup-tile-response', {
+          success: false,
+          error: 'Not in an active game'
+        });
+        return;
+      }
+
+      // Validate input data
+      if (!data || typeof data.tileId !== 'string' || data.tileId.length === 0) {
+        socket.emit('activate-powerup-tile-response', {
+          success: false,
+          error: 'Invalid tile ID'
+        });
+        return;
+      }
+
+      // Validate tile ownership
+      const player = context.gameState.players.find((p: any) => p.id === context.player.id);
+      if (!player) {
+        socket.emit('activate-powerup-tile-response', {
+          success: false,
+          error: 'Player not found'
+        });
+        return;
+      }
+
+      const hasTile = player.tiles.some((t: any) => t.id === data.tileId && t.isPowerUp);
+      if (!hasTile) {
+        console.warn(`Player ${context.player.id} attempted to activate power-up tile they don't own:`, data.tileId);
+        socket.emit('activate-powerup-tile-response', {
+          success: false,
+          error: 'You do not own this power-up tile'
+        });
+        return;
+      }
+
+      const result = gameService.activatePowerUpTile(context.roomId, context.player.id, data.tileId);
+      
+      socket.emit('activate-powerup-tile-response', {
+        success: result.success,
+        errors: result.errors
+      });
+      
+      if (result.success) {
+        // Broadcast updated game state to all players
+        broadcastGameState(context.roomId);
+        
+        // Notify all players about the power-up tile activation
+        io.to(context.roomId).emit('powerup-tile-activated', {
+          playerId: context.player.id,
+          playerName: context.player.name,
+          tileId: data.tileId
+        });
+      }
+    } catch (error) {
+      console.error('Error in activate-powerup-tile:', error);
       socket.emit('activate-powerup-tile-response', {
         success: false,
-        error: 'Not in an active game'
-      });
-      return;
-    }
-
-    const result = gameService.activatePowerUpTile(context.roomId, context.player.id, data.tileId);
-    
-    socket.emit('activate-powerup-tile-response', {
-      success: result.success,
-      errors: result.errors
-    });
-    
-    if (result.success) {
-      // Broadcast updated game state to all players
-      broadcastGameState(context.roomId);
-      
-      // Notify all players about the power-up tile activation
-      io.to(context.roomId).emit('powerup-tile-activated', {
-        playerId: context.player.id,
-        playerName: context.player.name,
-        tileId: data.tileId
+        errors: ['An error occurred while activating the power-up tile']
       });
     }
   });
 
   // Get current game state
   socket.on('get-game-state', () => {
-    const context = getPlayerGameContext(socket.id);
-    if (!context) {
+    try {
+      const context = getPlayerGameContext(socket.id);
+      if (!context) {
+        socket.emit('game-state-response', {
+          success: false,
+          error: 'Not in an active game'
+        });
+        return;
+      }
+
+      const pendingTiles = gameService.getPendingTiles(context.roomId);
+      
+      socket.emit('game-state-response', {
+        success: true,
+        gameState: context.gameState,
+        pendingTiles
+      });
+    } catch (error) {
+      console.error('Error in get-game-state:', error);
       socket.emit('game-state-response', {
         success: false,
-        error: 'Not in an active game'
+        error: 'An error occurred while getting game state'
       });
-      return;
     }
-
-    const pendingTiles = gameService.getPendingTiles(context.roomId);
-    
-    socket.emit('game-state-response', {
-      success: true,
-      gameState: context.gameState,
-      pendingTiles
-    });
   });
 
   // Clear pending move
   socket.on('clear-pending-move', () => {
-    const context = getPlayerGameContext(socket.id);
-    if (!context) {
+    try {
+      const context = getPlayerGameContext(socket.id);
+      if (!context) {
+        socket.emit('clear-pending-move-response', {
+          success: false,
+          error: 'Not in an active game'
+        });
+        return;
+      }
+
+      // Check if it's the player's turn
+      const currentPlayer = context.gameState.players[context.gameState.currentPlayerIndex];
+      if (currentPlayer.id !== context.player.id) {
+        socket.emit('clear-pending-move-response', {
+          success: false,
+          error: 'Not your turn'
+        });
+        return;
+      }
+
+      gameService.clearPendingMove(context.roomId);
+      
+      socket.emit('clear-pending-move-response', {
+        success: true
+      });
+      
+      // Broadcast updated pending tiles to all players
+      broadcastGameState(context.roomId);
+    } catch (error) {
+      console.error('Error in clear-pending-move:', error);
       socket.emit('clear-pending-move-response', {
         success: false,
-        error: 'Not in an active game'
+        error: 'An error occurred while clearing the move'
       });
-      return;
     }
-
-    // Check if it's the player's turn
-    const currentPlayer = context.gameState.players[context.gameState.currentPlayerIndex];
-    if (currentPlayer.id !== context.player.id) {
-      socket.emit('clear-pending-move-response', {
-        success: false,
-        error: 'Not your turn'
-      });
-      return;
-    }
-
-    gameService.clearPendingMove(context.roomId);
-    
-    socket.emit('clear-pending-move-response', {
-      success: true
-    });
-    
-    // Broadcast updated pending tiles to all players
-    broadcastGameState(context.roomId);
   });
 }

@@ -1,199 +1,363 @@
 import { Socket, Server } from 'socket.io';
 import { roomManager } from '../services/RoomManager';
+import { ValidationUtils, RateLimiter } from '../services/validation';
 import type { CreateRoomRequest, JoinRoomRequest } from '../types/room';
 
 export function registerRoomEvents(socket: Socket, io: Server) {
   // Create a new room
   socket.on('create-room', (data: CreateRoomRequest) => {
-    console.log('Create room request:', data);
-    
-    const result = roomManager.createRoom(socket.id, data);
-    
-    if (result.success && result.room) {
-      // Join the socket to the room
-      socket.join(result.room.id);
+    try {
+      // Rate limiting
+      if (!RateLimiter.checkLimit(socket.id, 'create-room', 1, 10000)) { // 1 per 10 seconds
+        socket.emit('room-created', {
+          success: false,
+          error: 'Please wait before creating another room'
+        });
+        return;
+      }
+
+      console.log('Create room request:', data);
       
-      // Send success response to the creator
-      socket.emit('room-created', {
-        success: true,
-        room: result.room
-      });
+      // Validate input
+      if (!data || typeof data !== 'object') {
+        socket.emit('room-created', {
+          success: false,
+          error: 'Invalid request data'
+        });
+        return;
+      }
+
+      const nameValidation = ValidationUtils.validatePlayerName(data.playerName);
+      if (!nameValidation.isValid) {
+        socket.emit('room-created', {
+          success: false,
+          error: nameValidation.errors[0] || 'Invalid player name'
+        });
+        return;
+      }
+
+      // Use sanitized name
+      const sanitizedData: CreateRoomRequest = {
+        playerName: nameValidation.sanitized
+      };
       
-      // Broadcast room update to all players in the room
-      io.to(result.room.id).emit('room-updated', result.room);
+      const result = roomManager.createRoom(socket.id, sanitizedData);
       
-      console.log(`Room ${result.room.code} created successfully`);
-    } else {
+      if (result.success && result.room) {
+        // Join the socket to the room
+        socket.join(result.room.id);
+        
+        // Send success response to the creator
+        socket.emit('room-created', {
+          success: true,
+          room: result.room
+        });
+        
+        // Broadcast room update to all players in the room
+        io.to(result.room.id).emit('room-updated', result.room);
+        
+        console.log(`Room ${result.room.code} created successfully`);
+      } else {
+        socket.emit('room-created', {
+          success: false,
+          error: result.error || 'Failed to create room'
+        });
+      }
+    } catch (error) {
+      console.error('Error in create-room:', error);
       socket.emit('room-created', {
         success: false,
-        error: result.error
+        error: 'An error occurred while creating the room'
       });
     }
   });
 
   // Join an existing room
   socket.on('join-room', (data: JoinRoomRequest) => {
-    console.log('Join room request:', data);
-    
-    const result = roomManager.joinRoom(socket.id, data);
-    
-    if (result.success && result.room) {
-      // Join the socket to the room
-      socket.join(result.room.id);
+    try {
+      // Rate limiting
+      if (!RateLimiter.checkLimit(socket.id, 'join-room', 3, 10000)) { // 3 per 10 seconds
+        socket.emit('room-joined', {
+          success: false,
+          error: 'Please wait before trying to join again'
+        });
+        return;
+      }
+
+      console.log('Join room request:', data);
       
-      // Send success response to the joiner
-      socket.emit('room-joined', {
-        success: true,
-        room: result.room
-      });
+      // Validate input
+      if (!data || typeof data !== 'object') {
+        socket.emit('room-joined', {
+          success: false,
+          error: 'Invalid request data'
+        });
+        return;
+      }
+
+      const nameValidation = ValidationUtils.validatePlayerName(data.playerName);
+      const codeValidation = ValidationUtils.validateRoomCode(data.roomCode);
+
+      if (!nameValidation.isValid) {
+        socket.emit('room-joined', {
+          success: false,
+          error: nameValidation.errors[0] || 'Invalid player name'
+        });
+        return;
+      }
+
+      if (!codeValidation.isValid) {
+        socket.emit('room-joined', {
+          success: false,
+          error: codeValidation.errors[0] || 'Invalid room code'
+        });
+        return;
+      }
+
+      // Use sanitized data
+      const sanitizedData: JoinRoomRequest = {
+        roomCode: codeValidation.sanitized,
+        playerName: nameValidation.sanitized
+      };
       
-      // Broadcast room update to all players in the room
-      io.to(result.room.id).emit('room-updated', result.room);
+      const result = roomManager.joinRoom(socket.id, sanitizedData);
       
-      // Notify other players that someone joined (or reconnected)
-      socket.to(result.room.id).emit('player-joined', {
-        playerName: data.playerName,
-        room: result.room
-      });
-      
-      console.log(`Player ${data.playerName} joined room ${data.roomCode}`);
-    } else {
+      if (result.success && result.room) {
+        // Join the socket to the room
+        socket.join(result.room.id);
+        
+        // Send success response to the joiner
+        socket.emit('room-joined', {
+          success: true,
+          room: result.room
+        });
+        
+        // Broadcast room update to all players in the room
+        io.to(result.room.id).emit('room-updated', result.room);
+        
+        // Notify other players that someone joined
+        socket.to(result.room.id).emit('player-joined', {
+          playerName: sanitizedData.playerName,
+          room: result.room
+        });
+        
+        console.log(`Player ${sanitizedData.playerName} joined room ${sanitizedData.roomCode}`);
+      } else {
+        socket.emit('room-joined', {
+          success: false,
+          error: result.error || 'Failed to join room'
+        });
+      }
+    } catch (error) {
+      console.error('Error in join-room:', error);
       socket.emit('room-joined', {
         success: false,
-        error: result.error
+        error: 'An error occurred while joining the room'
       });
     }
   });
 
   // Leave room
   socket.on('leave-room', () => {
-    console.log('Leave room request from:', socket.id);
-    
-    const result = roomManager.leaveRoom(socket.id);
-    
-    if (result.success && result.roomId) {
-      // Leave the socket room
-      socket.leave(result.roomId);
+    try {
+      console.log('Leave room request from:', socket.id);
       
-      // Send confirmation to the leaving player
-      socket.emit('room-left', {
-        success: true
-      });
+      const result = roomManager.leaveRoom(socket.id);
       
-      // Get updated room info and broadcast to remaining players
-      const roomInfo = roomManager.getRoomInfo(result.roomId);
-      if (roomInfo) {
-        io.to(result.roomId).emit('room-updated', roomInfo);
+      if (result.success && result.roomId) {
+        // Leave the socket room
+        socket.leave(result.roomId);
         
-        // Notify remaining players that someone left
-        socket.to(result.roomId).emit('player-left', {
-          wasHost: result.wasHost,
-          room: roomInfo
+        // Send confirmation to the leaving player
+        socket.emit('room-left', {
+          success: true
+        });
+        
+        // Get updated room info and broadcast to remaining players
+        const roomInfo = roomManager.getRoomInfo(result.roomId);
+        if (roomInfo) {
+          io.to(result.roomId).emit('room-updated', roomInfo);
+          
+          // Notify remaining players that someone left
+          socket.to(result.roomId).emit('player-left', {
+            wasHost: result.wasHost,
+            room: roomInfo
+          });
+        }
+        
+        console.log(`Player left room ${result.roomId}`);
+      } else {
+        socket.emit('room-left', {
+          success: false,
+          error: result.error || 'Failed to leave room'
         });
       }
-      
-      console.log(`Player left room ${result.roomId}`);
-    } else {
+    } catch (error) {
+      console.error('Error in leave-room:', error);
       socket.emit('room-left', {
         success: false,
-        error: result.error
+        error: 'An error occurred while leaving the room'
       });
     }
   });
 
   // Start game (host only)
   socket.on('start-game', () => {
-    console.log('Start game request from:', socket.id);
-    
-    const result = roomManager.startGame(socket.id);
-    
-    if (result.success && result.gameState) {
-      const playerInRoom = roomManager.getPlayerInRoom(socket.id);
-      
-      if (playerInRoom) {
-        // Broadcast game start to all players in the room
-        io.to(playerInRoom.room.id).emit('game-started', {
-          success: true,
-          gameState: result.gameState
+    try {
+      // Rate limiting
+      if (!RateLimiter.checkLimit(socket.id, 'start-game', 1, 5000)) { // 1 per 5 seconds
+        socket.emit('game-started', {
+          success: false,
+          error: 'Please wait before starting the game'
         });
-        
-        console.log(`Game started in room ${playerInRoom.room.code}`);
+        return;
       }
-    } else {
+
+      console.log('Start game request from:', socket.id);
+      
+      const result = roomManager.startGame(socket.id);
+      
+      if (result.success && result.gameState) {
+        const playerInRoom = roomManager.getPlayerInRoom(socket.id);
+        
+        if (playerInRoom) {
+          // Broadcast game start to all players in the room
+          io.to(playerInRoom.room.id).emit('game-started', {
+            success: true,
+            gameState: result.gameState
+          });
+          
+          console.log(`Game started in room ${playerInRoom.room.code}`);
+        }
+      } else {
+        socket.emit('game-started', {
+          success: false,
+          error: result.error || 'Failed to start game'
+        });
+      }
+    } catch (error) {
+      console.error('Error in start-game:', error);
       socket.emit('game-started', {
         success: false,
-        error: result.error
+        error: 'An error occurred while starting the game'
       });
     }
   });
 
   // Get current room info
   socket.on('get-room-info', () => {
-    const playerInRoom = roomManager.getPlayerInRoom(socket.id);
-    
-    if (playerInRoom) {
-      const roomInfo = roomManager.getRoomInfo(playerInRoom.room.id);
-      socket.emit('room-info', {
-        success: true,
-        room: roomInfo
-      });
-    } else {
+    try {
+      const playerInRoom = roomManager.getPlayerInRoom(socket.id);
+      
+      if (playerInRoom) {
+        const roomInfo = roomManager.getRoomInfo(playerInRoom.room.id);
+        socket.emit('room-info', {
+          success: true,
+          room: roomInfo
+        });
+      } else {
+        socket.emit('room-info', {
+          success: false,
+          error: 'Not in a room'
+        });
+      }
+    } catch (error) {
+      console.error('Error in get-room-info:', error);
       socket.emit('room-info', {
         success: false,
-        error: 'Not in a room'
+        error: 'An error occurred while getting room info'
       });
     }
   });
 
   // Send chat message
   socket.on('send-chat-message', (data: { message: string; playerColor: string }) => {
-    console.log('Chat message from:', socket.id, data);
-    
-    const playerInRoom = roomManager.getPlayerInRoom(socket.id);
-    
-    if (playerInRoom) {
-      const chatMessage = {
-        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-        playerId: playerInRoom.player.id,
-        playerName: playerInRoom.player.name,
-        playerColor: data.playerColor,
-        message: data.message,
-        timestamp: new Date().toISOString(),
-      };
+    try {
+      // Rate limiting for chat
+      if (!RateLimiter.checkLimit(socket.id, 'chat', 5, 5000)) { // 5 messages per 5 seconds
+        socket.emit('room-error', {
+          message: 'Please slow down your messages'
+        });
+        return;
+      }
+
+      console.log('Chat message from:', socket.id, data);
       
-      // Broadcast chat message to all players in the room
-      io.to(playerInRoom.room.id).emit('chat-message', chatMessage);
+      // Validate input
+      if (!data || typeof data !== 'object') {
+        socket.emit('room-error', {
+          message: 'Invalid message data'
+        });
+        return;
+      }
+
+      const messageValidation = ValidationUtils.validateChatMessage(data.message);
+      if (!messageValidation.isValid) {
+        socket.emit('room-error', {
+          message: messageValidation.errors[0] || 'Invalid message'
+        });
+        return;
+      }
+
+      // Basic color validation
+      const playerColor = typeof data.playerColor === 'string' && 
+                         /^#[0-9A-Fa-f]{6}$/.test(data.playerColor) 
+                         ? data.playerColor 
+                         : '#DC143C';
       
-      console.log(`Chat message sent in room ${playerInRoom.room.code}: ${data.message}`);
-    } else {
+      const playerInRoom = roomManager.getPlayerInRoom(socket.id);
+      
+      if (playerInRoom) {
+        const chatMessage = {
+          id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+          playerId: playerInRoom.player.id,
+          playerName: playerInRoom.player.name,
+          playerColor: playerColor,
+          message: messageValidation.sanitized,
+          timestamp: new Date().toISOString(),
+        };
+        
+        // Broadcast chat message to all players in the room
+        io.to(playerInRoom.room.id).emit('chat-message', chatMessage);
+        
+        console.log(`Chat message sent in room ${playerInRoom.room.code}: ${messageValidation.sanitized}`);
+      } else {
+        socket.emit('room-error', {
+          message: 'Not in a room'
+        });
+      }
+    } catch (error) {
+      console.error('Error in send-chat-message:', error);
       socket.emit('room-error', {
-        message: 'Not in a room'
+        message: 'An error occurred while sending the message'
       });
     }
   });
 
-  // Handle disconnect with grace period
+  // Handle disconnect
   socket.on('disconnect', () => {
-    console.log('Player disconnected:', socket.id);
-    
-    const result = roomManager.handlePlayerDisconnect(socket.id);
-    
-    if (result.roomId) {
-      // Get updated room info and broadcast to remaining players
-      const roomInfo = roomManager.getRoomInfo(result.roomId);
-      if (roomInfo) {
-        io.to(result.roomId).emit('room-updated', roomInfo);
-        
-        // Notify remaining players about disconnection with grace period info
-        socket.to(result.roomId).emit('player-disconnected', {
-          playerId: result.playerId,
-          wasHost: result.wasHost,
-          room: roomInfo,
-          hasGracePeriod: true // Let clients know this player might reconnect
-        });
-      }
+    try {
+      console.log('Player disconnected:', socket.id);
       
-      console.log(`Player temporarily disconnected from room ${result.roomId} (grace period active)`);
+      const result = roomManager.handlePlayerDisconnect(socket.id);
+      
+      if (result.roomId) {
+        // Get updated room info and broadcast to remaining players
+        const roomInfo = roomManager.getRoomInfo(result.roomId);
+        if (roomInfo) {
+          io.to(result.roomId).emit('room-updated', roomInfo);
+          
+          // Notify remaining players that someone disconnected
+          socket.to(result.roomId).emit('player-disconnected', {
+            wasHost: result.wasHost,
+            room: roomInfo
+          });
+        }
+        
+        console.log(`Player disconnected from room ${result.roomId}`);
+      }
+    } catch (error) {
+      console.error('Error handling disconnect:', error);
     }
   });
 }

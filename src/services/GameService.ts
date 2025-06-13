@@ -50,11 +50,72 @@ export class GameService {
     return this.pendingTiles.get(gameId) || [];
   }
 
+  // Server-side validation for tile ownership
+  private validateTileOwnership(playerId: string, tile: Tile, gameState: GameState): boolean {
+    const player = gameState.players.find(p => p.id === playerId);
+    if (!player) {
+      console.warn(`Player ${playerId} not found in game state`);
+      return false;
+    }
+    
+    // For power-up tiles, check if player has the specific power-up tile
+    if (tile.isPowerUp) {
+      const hasPowerUpTile = player.tiles.some(t => 
+        t.id === tile.id && 
+        t.isPowerUp && 
+        t.powerUpType === tile.powerUpType
+      );
+      if (!hasPowerUpTile) {
+        console.warn(`Player ${playerId} doesn't own power-up tile:`, tile);
+        return false;
+      }
+      return true;
+    }
+    
+    // For regular tiles, check exact match
+    const ownsTile = player.tiles.some(t => 
+      t.id === tile.id && 
+      t.letter === tile.letter && 
+      t.value === tile.value &&
+      t.isBlank === tile.isBlank
+    );
+    
+    if (!ownsTile) {
+      console.warn(`Player ${playerId} doesn't own tile:`, tile);
+      console.warn(`Player tiles:`, player.tiles.map(t => ({ id: t.id, letter: t.letter, value: t.value })));
+    }
+    
+    return ownsTile;
+  }
+
+  // Validate that all pending tiles are owned by the player
+  private validateAllPendingTilesOwnership(playerId: string, gameState: GameState, pendingTiles: PlacedTile[]): boolean {
+    for (const placedTile of pendingTiles) {
+      if (!this.validateTileOwnership(playerId, placedTile.tile, gameState)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   addPendingTile(gameId: string, tile: Tile, row: number, col: number): boolean {
     const gameState = this.games.get(gameId);
     const pendingTiles = this.pendingTiles.get(gameId);
     
     if (!gameState || !pendingTiles) {
+      return false;
+    }
+
+    // Get current player
+    const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+    if (!currentPlayer) {
+      console.warn('No current player found');
+      return false;
+    }
+
+    // Validate tile ownership before adding to pending
+    if (!this.validateTileOwnership(currentPlayer.id, tile, gameState)) {
+      console.warn('Tile ownership validation failed for addPendingTile');
       return false;
     }
 
@@ -110,6 +171,12 @@ export class GameService {
     
     if (pendingTiles.length === 0) {
       return { success: false, errors: ['No tiles placed'] };
+    }
+
+    // Critical security check: validate all pending tiles are owned by the player
+    if (!this.validateAllPendingTilesOwnership(playerId, gameState, pendingTiles)) {
+      console.error(`SECURITY ALERT: Player ${playerId} attempted to commit move with tiles they don't own`);
+      return { success: false, errors: ['Invalid tile ownership'] };
     }
 
     const moveResult = await moveManager.executeMove(gameState.board, currentPlayer, pendingTiles);
@@ -230,12 +297,25 @@ export class GameService {
     const playerTileIds = currentPlayer.tiles.map(t => t.id);
     const invalidTiles = tileIds.filter(id => !playerTileIds.includes(id));
     if (invalidTiles.length > 0) {
+      console.warn(`Player ${playerId} attempted to exchange tiles they don't own:`, invalidTiles);
       return { success: false, errors: ['Cannot exchange tiles you do not have'] };
+    }
+
+    // Additional validation: ensure no duplicate tile IDs
+    const uniqueTileIds = new Set(tileIds);
+    if (uniqueTileIds.size !== tileIds.length) {
+      return { success: false, errors: ['Duplicate tiles in exchange request'] };
     }
 
     // Remove tiles from player and add them back to bag
     const tilesToExchange = currentPlayer.tiles.filter(t => tileIds.includes(t.id));
     const remainingTiles = currentPlayer.tiles.filter(t => !tileIds.includes(t.id));
+    
+    // Validate that we found all tiles to exchange
+    if (tilesToExchange.length !== tileIds.length) {
+      console.warn(`Player ${playerId} exchange validation failed: found ${tilesToExchange.length} tiles, expected ${tileIds.length}`);
+      return { success: false, errors: ['Some tiles could not be found for exchange'] };
+    }
     
     // Add exchanged tiles back to bag and shuffle
     const newBag = [...gameState.tileBag, ...tilesToExchange];
@@ -315,6 +395,12 @@ export class GameService {
     
     if (gameState.playersEndedGame.includes(playerId)) {
       return { success: false, errors: ['Player already ended game'] };
+    }
+
+    // Validate that the player actually exists in the game
+    const player = gameState.players.find(p => p.id === playerId);
+    if (!player) {
+      return { success: false, errors: ['Player not found in game'] };
     }
 
     const updatedPlayers = gameState.players.map(p =>
@@ -415,6 +501,13 @@ export class GameService {
       return { success: false, errors: ['Player not found'] };
     }
 
+    // Validate that the player actually owns the power-up
+    const powerUpExists = player.activePowerUps.some(pu => pu.id === powerUpId);
+    if (!powerUpExists) {
+      console.warn(`Player ${playerId} attempted to activate power-up they don't own: ${powerUpId}`);
+      return { success: false, errors: ['Power-up not found in player inventory'] };
+    }
+
     const result = PowerUpManager.activatePowerUp(player, powerUpId);
     
     if (result.success) {
@@ -447,6 +540,7 @@ export class GameService {
 
     const powerUpTile = player.tiles.find(t => t.id === tileId && t.isPowerUp);
     if (!powerUpTile || !powerUpTile.powerUpType) {
+      console.warn(`Player ${playerId} attempted to activate power-up tile they don't own: ${tileId}`);
       return { success: false, errors: ['Power-up tile not found'] };
     }
 
