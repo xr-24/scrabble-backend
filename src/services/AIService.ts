@@ -1,29 +1,15 @@
 import type { GameState, Player, Tile, PlacedTile, BoardCell } from '../types/game';
 import { dictionaryService } from './dictionaryService';
-import { moveManager } from './moveManager';
 import { calculateTurnScore } from './scoreCalculator';
 import { validateMove } from './wordValidator';
+import { BOARD_SIZE } from '../constants/board';
 
-// Ars Goetia demon names for AI personalities
+// Professional AI demon names
 const DEMON_NAMES = [
   'Baal', 'Agares', 'Vassago', 'Samigina', 'Marbas', 'Valefor', 'Amon', 'Barbatos',
   'Paimon', 'Buer', 'Gusion', 'Sitri', 'Beleth', 'Leraje', 'Eligos', 'Zepar',
-  'Botis', 'Bathin', 'Sallos', 'Purson', 'Marax', 'Ipos', 'Aim', 'Naberius',
-  'Glasya-Labolas', 'Bune', 'Ronove', 'Berith', 'Astaroth', 'Forneus', 'Foras',
-  'Asmoday', 'Gaap', 'Furfur', 'Marchosias', 'Stolas', 'Phenex', 'Halphas',
-  'Malphas', 'Raum', 'Focalor', 'Vepar', 'Sabnock', 'Shax', 'Vine', 'Bifrons',
-  'Vual', 'Haagenti', 'Crocell', 'Furcas', 'Balam', 'Alloces', 'Caim', 'Murmur',
-  'Orobas', 'Gremory', 'Ose', 'Amy', 'Orias', 'Vapula', 'Zagan', 'Valac',
-  'Andras', 'Flauros', 'Andrealphus', 'Kimaris', 'Amdusias', 'Belial', 'Decarabia',
-  'Seere', 'Dantalion', 'Andromalius'
+  'Botis', 'Bathin', 'Sallos', 'Purson', 'Marax', 'Ipos', 'Aim', 'Naberius'
 ];
-
-// Pre-cached common words for fast AI moves
-const COMMON_WORDS = {
-  2: ['AT', 'TO', 'OF', 'IN', 'IT', 'IS', 'BE', 'AS', 'OR', 'AN', 'ON', 'NO', 'SO', 'BY', 'MY', 'WE', 'UP', 'IF', 'GO', 'DO', 'ME', 'HE', 'AM', 'US', 'OX', 'AX', 'EX', 'HI', 'LO', 'OH', 'YE', 'YO'],
-  3: ['THE', 'AND', 'FOR', 'ARE', 'BUT', 'NOT', 'YOU', 'ALL', 'CAN', 'HER', 'WAS', 'ONE', 'OUR', 'OUT', 'DAY', 'GET', 'HAS', 'HIM', 'HIS', 'HOW', 'ITS', 'MAY', 'NEW', 'NOW', 'OLD', 'SEE', 'TWO', 'WHO', 'BOY', 'DID', 'CAT', 'DOG', 'RUN', 'SUN', 'BIG', 'RED', 'HOT', 'TOP', 'BAD', 'BAG', 'BED', 'BOX', 'CAR', 'CUP', 'EGG', 'EYE', 'FUN', 'HAT', 'JOB', 'LEG', 'MAN', 'PEN', 'PIG', 'RAT', 'SIT', 'TEN', 'WIN', 'YES', 'ZOO', 'ACE', 'AGE', 'AID', 'AIM', 'AIR', 'ART', 'ASK', 'BAT', 'BIT', 'BUG', 'BUS', 'BUY', 'COW', 'CRY', 'CUT', 'EAR', 'EAT', 'END', 'FAR', 'FEW', 'FIX', 'FLY', 'FOX', 'GUN', 'GUY', 'HIT', 'ICE', 'KEY', 'KID', 'LAW', 'LAY', 'LET', 'LIE', 'LOT', 'LOW', 'MAP', 'MIX', 'MOM', 'NET', 'OIL', 'PAY', 'PET', 'PUT', 'ROW', 'SAD', 'SAY', 'SET', 'SIX', 'SKY', 'SON', 'TAX', 'TEA', 'TIE', 'TOY', 'TRY', 'USE', 'VAN', 'WAR', 'WAY', 'WET', 'WHY', 'WON', 'YET', 'ZIP'],
-  4: ['THAT', 'WITH', 'HAVE', 'THIS', 'WILL', 'YOUR', 'FROM', 'THEY', 'KNOW', 'WANT', 'BEEN', 'GOOD', 'MUCH', 'SOME', 'TIME', 'VERY', 'WHEN', 'COME', 'HERE', 'JUST', 'LIKE', 'LONG', 'MAKE', 'MANY', 'OVER', 'SUCH', 'TAKE', 'THAN', 'THEM', 'WELL', 'WERE', 'WHAT', 'WORD', 'WORK', 'YEAR', 'BACK', 'CALL', 'CAME', 'EACH', 'FIND', 'GIVE', 'HAND', 'HIGH', 'KEEP', 'LAST', 'LEFT', 'LIFE', 'LIVE', 'LOOK', 'MADE', 'MOST', 'MOVE', 'MUST', 'NAME', 'NEED', 'NEXT', 'OPEN', 'PART', 'PLAY', 'RIGHT', 'SAID', 'SAME', 'SEEM', 'SHOW', 'SIDE', 'TELL', 'TURN', 'USED', 'WANT', 'WAYS', 'WEEK', 'WENT', 'WERE', 'WHAT', 'WORK', 'YEAR', 'ALSO', 'AREA', 'AWAY', 'BEST', 'BOOK', 'BOTH', 'CASE', 'CITY', 'COME', 'DONE', 'DOWN', 'EACH', 'EVEN', 'EVER', 'FACE', 'FACT', 'FEEL', 'FIRE', 'FORM', 'FREE', 'FULL', 'GAME', 'GIRL', 'GOES', 'HELP', 'HOME', 'HOPE', 'HOUR', 'IDEA', 'INTO', 'ITEM', 'KEEP', 'KIND', 'KNEW', 'LAND', 'LATE', 'LEAD', 'LESS', 'LINE', 'LIST', 'LIVE', 'LONG', 'LOOK', 'LOVE', 'MAIN', 'MAKE', 'MEAN', 'MIND', 'MORE', 'MOVE', 'NEAR', 'NEED', 'NEWS', 'NICE', 'ONLY', 'OPEN', 'OVER', 'PLAN', 'REAL', 'ROOM', 'SAVE', 'SEEN', 'SEND', 'SHIP', 'SHOP', 'SHOW', 'SIDE', 'SIZE', 'SOME', 'SOON', 'STOP', 'SURE', 'TAKE', 'TALK', 'TEAM', 'TELL', 'TEST', 'TEXT', 'THEN', 'THEY', 'THIN', 'THIS', 'TIME', 'TOLD', 'TOOK', 'TREE', 'TRUE', 'TYPE', 'UNIT', 'UPON', 'USED', 'USER', 'VERY', 'VIEW', 'WALK', 'WALL', 'WANT', 'WATER', 'WEEK', 'WELL', 'WENT', 'WHAT', 'WHEN', 'WILL', 'WITH', 'WORD', 'WORK', 'YEAR', 'YOUR']
-};
 
 interface AIMove {
   type: 'WORD' | 'EXCHANGE' | 'PASS';
@@ -31,30 +17,64 @@ interface AIMove {
   exchangeTileIds?: string[];
 }
 
-interface WordPlacement {
+interface WordCandidate {
   word: string;
-  startRow: number;
-  startCol: number;
-  direction: 'HORIZONTAL' | 'VERTICAL';
   tiles: PlacedTile[];
   score: number;
+  estimatedScore: number;
+  row: number;
+  col: number;
+  direction: 'HORIZONTAL' | 'VERTICAL';
 }
 
 interface AnchorPoint {
   row: number;
   col: number;
   direction: 'HORIZONTAL' | 'VERTICAL';
+  crossWordConstraints: string[];
+  availableSpace: number;
+  premiumMultiplier: number;
+}
+
+interface TilePattern {
+  pattern: string;
+  words: string[];
+  minLength: number;
+  maxLength: number;
 }
 
 export class AIService {
   private usedDemonNames: Set<string> = new Set();
   private wordCache: Map<string, boolean> = new Map();
+  private patternCache: Map<string, string[]> = new Map();
+  
+  // High-value letter patterns for strategic word generation
+  private readonly HIGH_VALUE_PATTERNS: TilePattern[] = [
+    { pattern: 'QU', words: ['QUEEN', 'QUICK', 'QUIET', 'QUILT', 'QUOTE'], minLength: 4, maxLength: 7 },
+    { pattern: 'X', words: ['AX', 'EX', 'OX', 'WAX', 'TAX', 'BOX', 'FOX', 'MIX', 'SIX', 'FIX'], minLength: 2, maxLength: 5 },
+    { pattern: 'Z', words: ['ZOO', 'ZIP', 'ZAP', 'ZONE', 'ZERO', 'ZEST'], minLength: 3, maxLength: 6 },
+    { pattern: 'J', words: ['JAM', 'JOB', 'JOY', 'JUMP', 'JUST', 'JAZZ'], minLength: 3, maxLength: 6 },
+    { pattern: 'ING', words: ['RING', 'SING', 'KING', 'WING', 'THING', 'BRING'], minLength: 4, maxLength: 7 },
+    { pattern: 'ED', words: ['RED', 'BED', 'LED', 'USED', 'MOVED', 'PLAYED'], minLength: 3, maxLength: 7 },
+    { pattern: 'ER', words: ['HER', 'PER', 'OVER', 'UNDER', 'WATER', 'BETTER'], minLength: 3, maxLength: 7 },
+    { pattern: 'LY', words: ['FLY', 'TRY', 'ONLY', 'EARLY', 'REALLY'], minLength: 3, maxLength: 7 },
+    { pattern: 'ION', words: ['LION', 'UNION', 'NATION', 'ACTION'], minLength: 4, maxLength: 7 }
+  ];
+
+  // Common high-scoring words by length
+  private readonly STRATEGIC_WORDS: Record<number, string[]> = {
+    2: ['QI', 'XI', 'XU', 'ZA', 'JO', 'KA', 'QAT'],
+    3: ['QUA', 'ZAX', 'ZEX', 'JEW', 'JAW', 'WAX', 'BOX', 'FOX', 'MIX'],
+    4: ['QUIZ', 'JAZZ', 'JINX', 'WAXY', 'FOXY', 'COZY', 'HAZY'],
+    5: ['JAZZY', 'FIZZY', 'FUZZY', 'DIZZY', 'QUAKE', 'QUEEN'],
+    6: ['QUARTZ', 'ZEPHYR', 'JOCKEY', 'OXYGEN'],
+    7: ['QUICKLY', 'QUALIFY', 'SQUEEZE', 'BUZZARD']
+  };
 
   generateDemonName(): string {
     const availableNames = DEMON_NAMES.filter(name => !this.usedDemonNames.has(name));
     
     if (availableNames.length === 0) {
-      // If all names are used, reset and start over
       this.usedDemonNames.clear();
       const name = DEMON_NAMES[Math.floor(Math.random() * DEMON_NAMES.length)];
       this.usedDemonNames.add(name);
@@ -69,175 +89,174 @@ export class AIService {
   async generateMove(gameState: GameState, playerId: string): Promise<AIMove> {
     const player = gameState.players.find(p => p.id === playerId);
     if (!player) {
-      console.error(`AI player ${playerId} not found in game state`);
+      console.error(`AI player ${playerId} not found`);
       return { type: 'PASS' };
     }
 
-    console.log(`🔥 Demon ${player.name} seeks maximum carnage...`);
-    console.log(`Available tiles: ${player.tiles.map(t => t.letter).join(', ')}`);
-
+    console.log(`🎯 ${player.name} analyzing board position...`);
     const startTime = Date.now();
     
     try {
-      // Fast, score-focused move generation
-      const possibleMoves = await this.findHighValueMoves(gameState.board, player.tiles);
+      // Professional AI move generation pipeline
+      const candidates = await this.generateWordCandidates(gameState.board, player.tiles);
       
-      const elapsedTime = Date.now() - startTime;
-      console.log(`🔥 Demon ${player.name} found ${possibleMoves.length} moves in ${elapsedTime}ms`);
-      
-      if (possibleMoves.length === 0) {
-        console.log(`🔥 Demon ${player.name} finds no worthy words, exchanges tiles in frustration`);
-        return this.generateExchangeMove(player.tiles);
+      if (candidates.length === 0) {
+        console.log(`🔄 ${player.name} exchanges tiles strategically`);
+        return this.generateStrategicExchange(player.tiles);
       }
 
-      // Demons are greedy - always pick the highest scoring move
-      possibleMoves.sort((a, b) => b.score - a.score);
-      const bestMove = possibleMoves[0];
-
-      console.log(`🔥 Demon ${player.name} unleashes "${bestMove.word}" for ${bestMove.score} points!`);
+      // Select highest scoring move
+      const bestMove = candidates[0]; // Already sorted by score
+      const elapsedTime = Date.now() - startTime;
+      
+      console.log(`⚡ ${player.name} plays "${bestMove.word}" for ${bestMove.score} points (${elapsedTime}ms)`);
       
       return {
         type: 'WORD',
         tiles: bestMove.tiles
       };
     } catch (error) {
-      console.error(`💀 Demon ${player.name} failed to conjure a move:`, error);
+      console.error(`💀 ${player.name} AI error:`, error);
       return { type: 'PASS' };
     }
   }
 
-  // Fast, score-focused move generation
-  private async findHighValueMoves(board: BoardCell[][], tiles: Tile[]): Promise<WordPlacement[]> {
-    const moves: WordPlacement[] = [];
-    const anchorPoints = this.findAnchorPoints(board);
+  private async generateWordCandidates(board: BoardCell[][], tiles: Tile[]): Promise<WordCandidate[]> {
+    const candidates: WordCandidate[] = [];
     
-    // If no anchor points (first move), use center
-    if (anchorPoints.length === 0) {
-      anchorPoints.push({ row: 7, col: 7, direction: 'HORIZONTAL' });
-      anchorPoints.push({ row: 7, col: 7, direction: 'VERTICAL' });
-    }
-
-    // Generate words from available tiles (fast approach)
-    const candidateWords = this.generateCandidateWords(tiles);
+    // Step 1: Find strategic anchor points (adjacent to existing tiles)
+    const anchors = this.findStrategicAnchors(board);
     
-    // Try each word at each anchor point
-    for (const word of candidateWords) {
-      for (const anchor of anchorPoints) {
-        const placement = await this.tryWordAtAnchor(word, anchor, board, tiles);
-        if (placement) {
-          moves.push(placement);
+    // Step 2: Generate words using pattern-based approach
+    const wordPool = this.generateWordPool(tiles);
+    
+    // Step 3: Try each word at each viable anchor point
+    for (const word of wordPool) {
+      for (const anchor of anchors) {
+        const candidate = await this.tryWordAtAnchor(word, anchor, board, tiles);
+        if (candidate) {
+          candidates.push(candidate);
           
-          // Limit moves to prevent timeout - demons are impatient!
-          if (moves.length >= 15) break;
+          // Limit candidates for performance (beam search)
+          if (candidates.length >= 50) break;
         }
       }
-      if (moves.length >= 15) break;
+      if (candidates.length >= 50) break;
     }
 
-    return moves;
+    // Step 4: Sort by score (highest first) and return top candidates
+    return candidates
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 10); // Keep only top 10 moves
   }
 
-  // Find strategic anchor points (adjacent to existing tiles)
-  private findAnchorPoints(board: BoardCell[][]): AnchorPoint[] {
+  private findStrategicAnchors(board: BoardCell[][]): AnchorPoint[] {
     const anchors: AnchorPoint[] = [];
+    const hasExistingTiles = board.some(row => row.some(cell => cell.tile));
     
-    for (let row = 0; row < 15; row++) {
-      for (let col = 0; col < 15; col++) {
-        if (board[row][col].tile) {
-          // Add horizontal anchors (left and right of existing tiles)
-          if (col > 0 && !board[row][col - 1].tile) {
-            anchors.push({ row, col: col - 1, direction: 'HORIZONTAL' });
-          }
-          if (col < 14 && !board[row][col + 1].tile) {
-            anchors.push({ row, col: col + 1, direction: 'HORIZONTAL' });
-          }
-          
-          // Add vertical anchors (above and below existing tiles)
-          if (row > 0 && !board[row - 1][col].tile) {
-            anchors.push({ row: row - 1, col, direction: 'VERTICAL' });
-          }
-          if (row < 14 && !board[row + 1][col].tile) {
-            anchors.push({ row: row + 1, col, direction: 'VERTICAL' });
-          }
+    if (!hasExistingTiles) {
+      // First move - center position only
+      return [{
+        row: 7, col: 7, direction: 'HORIZONTAL',
+        crossWordConstraints: [], availableSpace: 7, premiumMultiplier: 2
+      }];
+    }
+
+    // Find positions adjacent to existing tiles
+    for (let row = 0; row < BOARD_SIZE; row++) {
+      for (let col = 0; col < BOARD_SIZE; col++) {
+        if (board[row][col].tile) continue; // Skip occupied cells
+        
+        // Check if adjacent to existing tile
+        const isAdjacent = this.isAdjacentToTile(row, col, board);
+        if (!isAdjacent) continue;
+
+        // Add horizontal anchor
+        const hSpace = this.calculateAvailableSpace(row, col, 'HORIZONTAL', board);
+        if (hSpace >= 2) {
+          anchors.push({
+            row, col, direction: 'HORIZONTAL',
+            crossWordConstraints: this.getCrossWordConstraints(row, col, 'HORIZONTAL', board),
+            availableSpace: hSpace,
+            premiumMultiplier: this.calculatePremiumValue(row, col, board)
+          });
+        }
+
+        // Add vertical anchor
+        const vSpace = this.calculateAvailableSpace(row, col, 'VERTICAL', board);
+        if (vSpace >= 2) {
+          anchors.push({
+            row, col, direction: 'VERTICAL',
+            crossWordConstraints: this.getCrossWordConstraints(row, col, 'VERTICAL', board),
+            availableSpace: vSpace,
+            premiumMultiplier: this.calculatePremiumValue(row, col, board)
+          });
         }
       }
     }
-    
-    return anchors;
+
+    // Sort anchors by strategic value (premium squares first)
+    return anchors.sort((a, b) => b.premiumMultiplier - a.premiumMultiplier);
   }
 
-  // Generate candidate words from available tiles (prioritize high-value combinations)
-  private generateCandidateWords(tiles: Tile[]): string[] {
-    const words: string[] = [];
-    const letters = tiles.map(t => t.letter.toUpperCase());
+  private generateWordPool(tiles: Tile[]): string[] {
+    const words: Set<string> = new Set();
+    const letters = tiles.map(t => t.letter.toUpperCase()).filter(l => l !== '?');
+    const blanks = tiles.filter(t => t.isBlank).length;
     
-    // Start with pre-cached common words that we can make
-    for (const [length, wordList] of Object.entries(COMMON_WORDS)) {
+    // Add strategic high-scoring words first
+    for (const [length, wordList] of Object.entries(this.STRATEGIC_WORDS)) {
       for (const word of wordList) {
-        if (this.canMakeWord(word, letters)) {
-          words.push(word);
+        if (this.canMakeWordWithBlanks(word, letters, blanks)) {
+          words.add(word);
         }
       }
     }
-    
-    // Add some simple 2-letter combinations for quick plays
-    for (let i = 0; i < letters.length && words.length < 50; i++) {
-      for (let j = i + 1; j < letters.length && words.length < 50; j++) {
-        const word = letters[i] + letters[j];
-        if (!words.includes(word)) {
-          words.push(word);
-        }
-      }
-    }
-    
-    // Prioritize longer words (higher scoring potential)
-    return words.sort((a, b) => b.length - a.length);
-  }
 
-  private canMakeWord(word: string, availableLetters: string[]): boolean {
-    const letterCounts = new Map<string, number>();
-    
-    // Count available letters
-    for (const letter of availableLetters) {
-      letterCounts.set(letter, (letterCounts.get(letter) || 0) + 1);
-    }
-    
-    // Check if we have enough of each letter needed for the word
-    for (const letter of word) {
-      const needed = letterCounts.get(letter) || 0;
-      if (needed === 0) {
-        return false;
+    // Add pattern-based words
+    for (const pattern of this.HIGH_VALUE_PATTERNS) {
+      if (this.hasPattern(pattern.pattern, letters)) {
+        for (const word of pattern.words) {
+          if (this.canMakeWordWithBlanks(word, letters, blanks)) {
+            words.add(word);
+          }
+        }
       }
-      letterCounts.set(letter, needed - 1);
     }
-    
-    return true;
+
+    // Add common 2-3 letter words for quick plays
+    const shortWords = ['AT', 'TO', 'OF', 'IN', 'IT', 'IS', 'BE', 'AS', 'OR', 'AN', 'ON', 'NO', 'SO', 'BY', 'MY', 'WE', 'UP', 'IF', 'GO', 'DO', 'ME', 'HE', 'AM', 'US', 'OX', 'AX', 'EX', 'HI', 'LO', 'OH', 'YE', 'YO'];
+    for (const word of shortWords) {
+      if (this.canMakeWordWithBlanks(word, letters, blanks)) {
+        words.add(word);
+      }
+    }
+
+    // Convert to array and sort by length (longer words first for higher scores)
+    return Array.from(words).sort((a, b) => b.length - a.length);
   }
 
   private async tryWordAtAnchor(
     word: string,
     anchor: AnchorPoint,
     board: BoardCell[][],
-    availableTiles: Tile[]
-  ): Promise<WordPlacement | null> {
-    const { row: anchorRow, col: anchorCol, direction } = anchor;
+    tiles: Tile[]
+  ): Promise<WordCandidate | null> {
+    const { row, col, direction, availableSpace } = anchor;
     
-    // Try different starting positions relative to the anchor
-    const maxOffset = Math.min(word.length - 1, direction === 'HORIZONTAL' ? anchorCol : anchorRow);
+    if (word.length > availableSpace) return null;
+
+    // Try different starting positions for the word
+    const maxOffset = Math.min(word.length - 1, direction === 'HORIZONTAL' ? col : row);
     
     for (let offset = 0; offset <= maxOffset; offset++) {
-      const startRow = direction === 'HORIZONTAL' ? anchorRow : anchorRow - offset;
-      const startCol = direction === 'HORIZONTAL' ? anchorCol - offset : anchorCol;
+      const startRow = direction === 'HORIZONTAL' ? row : row - offset;
+      const startCol = direction === 'HORIZONTAL' ? col - offset : col;
       
-      // Check bounds
-      const endRow = direction === 'HORIZONTAL' ? startRow : startRow + word.length - 1;
-      const endCol = direction === 'HORIZONTAL' ? startCol + word.length - 1 : startCol;
+      const placement = await this.tryWordPlacement(
+        word, startRow, startCol, direction, board, tiles
+      );
       
-      if (startRow < 0 || startCol < 0 || endRow >= 15 || endCol >= 15) {
-        continue;
-      }
-      
-      const placement = await this.tryPlacement(word, startRow, startCol, direction, board, availableTiles);
       if (placement) {
         return placement;
       }
@@ -246,19 +265,28 @@ export class AIService {
     return null;
   }
 
-  private async tryPlacement(
-    word: string, 
-    startRow: number, 
-    startCol: number, 
+  private async tryWordPlacement(
+    word: string,
+    startRow: number,
+    startCol: number,
     direction: 'HORIZONTAL' | 'VERTICAL',
     board: BoardCell[][],
-    availableTiles: Tile[]
-  ): Promise<WordPlacement | null> {
-    const tiles: PlacedTile[] = [];
-    const usedTileIds: string[] = [];
-    let connectsToExistingTile = false;
+    tiles: Tile[]
+  ): Promise<WordCandidate | null> {
+    // Check bounds
+    const endRow = direction === 'HORIZONTAL' ? startRow : startRow + word.length - 1;
+    const endCol = direction === 'HORIZONTAL' ? startCol + word.length - 1 : startCol;
     
-    // Check if placement is valid and build tile list
+    if (startRow < 0 || startCol < 0 || endRow >= BOARD_SIZE || endCol >= BOARD_SIZE) {
+      return null;
+    }
+
+    const placedTiles: PlacedTile[] = [];
+    const usedTileIds: string[] = [];
+    let connectsToExisting = false;
+    let usedBlanks = 0;
+    
+    // Check if we can place this word
     for (let i = 0; i < word.length; i++) {
       const row = direction === 'HORIZONTAL' ? startRow : startRow + i;
       const col = direction === 'HORIZONTAL' ? startCol + i : startCol;
@@ -271,18 +299,28 @@ export class AIService {
         if (existingTile.letter.toUpperCase() !== letter) {
           return null;
         }
-        connectsToExistingTile = true;
+        connectsToExisting = true;
       } else {
         // Need to place a new tile
-        const availableTile = availableTiles.find(t => 
+        let availableTile = tiles.find(t => 
           t.letter.toUpperCase() === letter && !usedTileIds.includes(t.id)
         );
         
+        // Try using a blank tile if no regular tile available
         if (!availableTile) {
-          return null; // Don't have the required letter
+          availableTile = tiles.find(t => 
+            t.isBlank && !usedTileIds.includes(t.id)
+          );
+          if (availableTile) {
+            usedBlanks++;
+          }
         }
         
-        tiles.push({
+        if (!availableTile) {
+          return null;
+        }
+        
+        placedTiles.push({
           tile: availableTile,
           row,
           col
@@ -292,55 +330,152 @@ export class AIService {
     }
     
     // Must place at least one new tile
-    if (tiles.length === 0) {
-      return null;
-    }
+    if (placedTiles.length === 0) return null;
     
-    // First move must cover center square (7,7)
-    const isFirstMove = board.every(row => row.every(cell => !cell.tile));
+    // First move must cover center
+    const isFirstMove = !board.some(row => row.some(cell => cell.tile));
     if (isFirstMove) {
-      const coversCenter = tiles.some(t => t.row === 7 && t.col === 7);
-      if (!coversCenter) {
-        return null;
-      }
-      connectsToExistingTile = true; // First move is always valid for connection
+      const coversCenter = placedTiles.some(t => t.row === 7 && t.col === 7);
+      if (!coversCenter) return null;
+      connectsToExisting = true;
     }
     
-    // Must connect to existing tiles (except first move)
-    if (!connectsToExistingTile && !isFirstMove) {
-      return null;
-    }
+    // Must connect to existing tiles
+    if (!connectsToExisting && !isFirstMove) return null;
     
-    // Quick word validation using cache
-    const isValid = await this.isValidWordCached(word);
-    if (!isValid) {
-      return null;
-    }
+    // Quick word validation
+    if (!(await this.isValidWordCached(word))) return null;
     
-    // Validate the move (this is expensive, so we do it last)
+    // Estimate score quickly (without full validation)
+    const estimatedScore = this.estimateScore(word, placedTiles, board, usedBlanks);
+    
+    // Only do expensive validation for high-scoring moves
+    if (estimatedScore < 15 && !isFirstMove) return null;
+    
     try {
-      const validation = await validateMove(tiles, board);
-      if (!validation.isValid) {
-        return null;
-      }
+      // Full validation
+      const validation = await validateMove(placedTiles, board);
+      if (!validation.isValid) return null;
       
-      // Calculate score - demons love high scores!
-      const score = calculateTurnScore(validation.words, tiles, board);
+      // Calculate exact score
+      const scoreResult = calculateTurnScore(validation.words, placedTiles, board);
       
       return {
         word,
-        startRow,
-        startCol,
-        direction,
-        tiles,
-        score: score.totalScore
+        tiles: placedTiles,
+        score: scoreResult.totalScore,
+        estimatedScore,
+        row: startRow,
+        col: startCol,
+        direction
       };
     } catch (error) {
       return null;
     }
   }
 
-  // Cached word validation for performance
+  private estimateScore(word: string, tiles: PlacedTile[], board: BoardCell[][], blanksUsed: number): number {
+    let score = 0;
+    let wordMultiplier = 1;
+    
+    for (const placedTile of tiles) {
+      const { row, col, tile } = placedTile;
+      let letterScore = tile.isBlank ? 0 : tile.value;
+      
+      // Apply letter multipliers
+      const multiplier = board[row][col].multiplier;
+      if (multiplier === 'DOUBLE_LETTER') letterScore *= 2;
+      if (multiplier === 'TRIPLE_LETTER') letterScore *= 3;
+      if (multiplier === 'DOUBLE_WORD') wordMultiplier *= 2;
+      if (multiplier === 'TRIPLE_WORD') wordMultiplier *= 3;
+      
+      score += letterScore;
+    }
+    
+    score *= wordMultiplier;
+    
+    // Bonus for using all 7 tiles
+    if (tiles.length === 7) score += 50;
+    
+    // Bonus for longer words
+    if (word.length >= 6) score += word.length * 2;
+    
+    // Penalty for using blanks
+    score -= blanksUsed * 5;
+    
+    return score;
+  }
+
+  // Helper methods
+  private isAdjacentToTile(row: number, col: number, board: BoardCell[][]): boolean {
+    const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+    return directions.some(([dr, dc]) => {
+      const newRow = row + dr;
+      const newCol = col + dc;
+      return newRow >= 0 && newRow < BOARD_SIZE && 
+             newCol >= 0 && newCol < BOARD_SIZE && 
+             board[newRow][newCol].tile !== null;
+    });
+  }
+
+  private calculateAvailableSpace(row: number, col: number, direction: 'HORIZONTAL' | 'VERTICAL', board: BoardCell[][]): number {
+    let space = 1; // Current position
+    
+    if (direction === 'HORIZONTAL') {
+      // Check left
+      for (let c = col - 1; c >= 0 && !board[row][c].tile; c--) space++;
+      // Check right
+      for (let c = col + 1; c < BOARD_SIZE && !board[row][c].tile; c++) space++;
+    } else {
+      // Check up
+      for (let r = row - 1; r >= 0 && !board[r][col].tile; r--) space++;
+      // Check down
+      for (let r = row + 1; r < BOARD_SIZE && !board[r][col].tile; r++) space++;
+    }
+    
+    return space;
+  }
+
+  private getCrossWordConstraints(row: number, col: number, direction: 'HORIZONTAL' | 'VERTICAL', board: BoardCell[][]): string[] {
+    // For now, return empty constraints - could be enhanced for more sophisticated play
+    return [];
+  }
+
+  private calculatePremiumValue(row: number, col: number, board: BoardCell[][]): number {
+    const multiplier = board[row][col].multiplier;
+    switch (multiplier) {
+      case 'TRIPLE_WORD': return 10;
+      case 'DOUBLE_WORD': return 5;
+      case 'TRIPLE_LETTER': return 3;
+      case 'DOUBLE_LETTER': return 2;
+      case 'CENTER': return 4;
+      default: return 1;
+    }
+  }
+
+  private canMakeWordWithBlanks(word: string, letters: string[], blanks: number): boolean {
+    const letterCounts = new Map<string, number>();
+    letters.forEach(letter => {
+      letterCounts.set(letter, (letterCounts.get(letter) || 0) + 1);
+    });
+    
+    let blanksNeeded = 0;
+    for (const letter of word) {
+      const available = letterCounts.get(letter) || 0;
+      if (available > 0) {
+        letterCounts.set(letter, available - 1);
+      } else {
+        blanksNeeded++;
+      }
+    }
+    
+    return blanksNeeded <= blanks;
+  }
+
+  private hasPattern(pattern: string, letters: string[]): boolean {
+    return pattern.split('').every(letter => letters.includes(letter));
+  }
+
   private async isValidWordCached(word: string): Promise<boolean> {
     if (this.wordCache.has(word)) {
       return this.wordCache.get(word)!;
@@ -356,10 +491,19 @@ export class AIService {
     }
   }
 
-  private generateExchangeMove(tiles: Tile[]): AIMove {
-    // Demons exchange tiles strategically - keep high-value letters
-    const tileValues = tiles.map(t => ({ tile: t, value: t.value }));
-    tileValues.sort((a, b) => a.value - b.value); // Sort by value (ascending)
+  private generateStrategicExchange(tiles: Tile[]): AIMove {
+    // Keep high-value tiles and vowels, exchange low-value consonants
+    const tileValues = tiles.map(t => ({ 
+      tile: t, 
+      value: t.value,
+      isVowel: 'AEIOU'.includes(t.letter.toUpperCase())
+    }));
+    
+    // Sort by strategic value (keep high-value tiles and vowels)
+    tileValues.sort((a, b) => {
+      if (a.isVowel !== b.isVowel) return a.isVowel ? 1 : -1; // Keep vowels
+      return a.value - b.value; // Exchange low-value tiles first
+    });
     
     // Exchange 3-5 lowest value tiles
     const exchangeCount = Math.min(Math.max(3, Math.floor(Math.random() * 3) + 3), tiles.length);
