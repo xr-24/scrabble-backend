@@ -228,6 +228,9 @@ export function registerRoomEvents(socket: Socket, io: Server) {
             gameState: result.gameState
           });
           
+          // Check if first player is AI and execute their move with io instance
+          gameService.checkAndExecuteAITurn(playerInRoom.room.id, io);
+          
           console.log(`Game started in room ${playerInRoom.room.code}`);
         }
       } else {

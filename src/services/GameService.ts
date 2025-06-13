@@ -268,7 +268,7 @@ export class GameService {
     return moveManager.previewMove(gameState.board, pendingTiles);
   }
 
-  nextTurn(gameId: string): void {
+  nextTurn(gameId: string, io?: any): void {
     const gameState = this.games.get(gameId);
     if (!gameState) return;
 
@@ -299,7 +299,7 @@ export class GameService {
     this.games.set(gameId, updatedGameState);
 
     // Check if the next player is AI and execute their move
-    this.checkAndExecuteAITurn(gameId);
+    this.checkAndExecuteAITurn(gameId, io);
   }
 
   exchangeTiles(gameId: string, playerId: string, tileIds: string[]): { success: boolean; errors: string[] } {
@@ -474,7 +474,7 @@ export class GameService {
   }
 
   // Check if current player is AI and execute move if needed
-  async checkAndExecuteAITurn(gameId: string): Promise<void> {
+  async checkAndExecuteAITurn(gameId: string, io?: any): Promise<void> {
     const gameState = this.games.get(gameId);
     if (!gameState) {
       console.log(`checkAndExecuteAITurn: Game ${gameId} not found`);
@@ -493,12 +493,22 @@ export class GameService {
           const result = await this.executeAIMove(gameId);
           console.log(`AI move result for ${currentPlayer.name}:`, result);
           
+          // Broadcast game state update to all players after AI move
+          if (io) {
+            this.broadcastGameState(gameId, io);
+          }
+          
           if (!result.success) {
             console.error(`AI move failed for ${currentPlayer.name}:`, result.errors);
             // If AI move fails, try to pass turn to prevent getting stuck
             console.log(`Attempting to pass turn for ${currentPlayer.name} after failed move`);
             const passResult = this.passTurn(gameId, currentPlayer.id);
             console.log(`Pass turn result for ${currentPlayer.name}:`, passResult);
+            
+            // Broadcast after pass turn too
+            if (io) {
+              this.broadcastGameState(gameId, io);
+            }
           }
         } catch (error) {
           console.error(`Error in AI move execution for ${currentPlayer.name}:`, error);
@@ -507,6 +517,11 @@ export class GameService {
             console.log(`Emergency pass turn for ${currentPlayer.name} after error`);
             const passResult = this.passTurn(gameId, currentPlayer.id);
             console.log(`Emergency pass result for ${currentPlayer.name}:`, passResult);
+            
+            // Broadcast after emergency pass
+            if (io) {
+              this.broadcastGameState(gameId, io);
+            }
           } catch (passError) {
             console.error(`Emergency pass also failed for ${currentPlayer.name}:`, passError);
           }
@@ -1058,6 +1073,20 @@ export class GameService {
     console.log(`Updated player ${playerId} tile color to ${color} in game ${gameId}`);
 
     return { success: true, errors: [] };
+  }
+
+  // Broadcast game state to all players in room
+  broadcastGameState(gameId: string, io: any): void {
+    const gameState = this.getGameState(gameId);
+    const pendingTiles = this.getPendingTiles(gameId);
+    
+    if (gameState && io) {
+      console.log(`Broadcasting game state update for game ${gameId}`);
+      io.to(gameId).emit('game-state-updated', {
+        gameState,
+        pendingTiles
+      });
+    }
   }
 
   // Clean up finished games
