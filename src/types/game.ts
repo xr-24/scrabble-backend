@@ -52,6 +52,7 @@ export interface Player {
   hasEndedGame: boolean;
   activePowerUps: PowerUp[];
   activePowerUpForTurn: PowerUp | null;
+  tileColor?: string;
 }
 
 export interface GameState {
