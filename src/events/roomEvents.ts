@@ -1,5 +1,6 @@
 import { Socket, Server } from 'socket.io';
 import { roomManager } from '../services/RoomManager';
+import { gameService } from '../services/GameService';
 import { ValidationUtils, RateLimiter } from '../services/validation';
 import type { CreateRoomRequest, JoinRoomRequest } from '../types/room';
 
@@ -300,6 +301,26 @@ export function registerRoomEvents(socket: Socket, io: Server) {
       const result = roomManager.updatePlayerColor(socket.id, playerColor);
       
       if (result.success && result.room) {
+        // If game is started, also update the game state
+        if (result.room.isStarted) {
+          const playerInRoom = roomManager.getPlayerInRoom(socket.id);
+          if (playerInRoom) {
+            const gameResult = gameService.updatePlayerColor(
+              result.room.id, 
+              playerInRoom.player.id, 
+              playerColor
+            );
+            
+            if (gameResult.success) {
+              // Broadcast updated game state to all players
+              const gameState = gameService.getGameState(result.room.id);
+              if (gameState) {
+                io.to(result.room.id).emit('game-state-update', gameState);
+              }
+            }
+          }
+        }
+        
         // Broadcast room update to all players in the room
         io.to(result.room.id).emit('room-updated', result.room);
         
