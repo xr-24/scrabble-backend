@@ -5,6 +5,7 @@ import cors from 'cors';
 import { registerRoomEvents } from './events/roomEvents';
 import { registerGameEvents } from './events/gameEvents';
 import { dictionaryService } from './services/dictionaryService';
+import { advancedAIService } from './services/AdvancedAIService';
 
 const app = express();
 const server = createServer(app);
@@ -115,17 +116,22 @@ io.engine.on('connection_error', (err) => {
   console.error('Socket.io connection error:', err);
 });
 
-// Initialize dictionary on startup
+// Initialize dictionary and AI on startup
 async function initializeServer() {
   try {
     console.log('Loading dictionary...');
     await dictionaryService.loadDictionary();
     console.log('Dictionary loaded successfully');
     
+    console.log('🔥 Initializing Advanced AI...');
+    await advancedAIService.initialize();
+    console.log('🔥 Advanced AI initialized successfully');
+    
     const PORT = process.env.PORT || 3001;
     server.listen(PORT, () => {
       console.log(`🚀 Scrabble Backend Server running on port ${PORT}`);
       console.log(`📚 Dictionary loaded with ${dictionaryService.getDictionarySize()} words`);
+      console.log(`🔥 Advanced AI ready for lightning-fast moves`);
       console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log(`🔗 CORS origins: ${JSON.stringify(corsOptions.origin)}`);
       console.log(`🛡️  Security measures enabled`);
