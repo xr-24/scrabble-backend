@@ -426,7 +426,7 @@ export class GameService {
     try {
       console.log(`Executing AI move for ${currentPlayer.name}`);
       
-      // Generate AI move using GADDAG AI
+      // Generate AI move using GADDAG
       const aiMove = await gaddagAIService.generateMove(gameState, currentPlayer.id);
       
       switch (aiMove.type) {

@@ -177,122 +177,64 @@ export class ProductionGADDAGBuilder {
   }
 
   /**
-   * Load comprehensive word list for production use
+   * Load comprehensive word list directly from the dictionary service
    */
   private async loadComprehensiveWordList(): Promise<string[]> {
-    console.log('🔧 Loading dictionary for GADDAG construction...');
+    console.log('📖 Loading word list from dictionary service...');
     
-    // First, ensure dictionary service is loaded
+    // Ensure dictionary service is loaded
     await dictionaryService.loadDictionary();
     
     if (!dictionaryService.isDictionaryLoaded()) {
-      throw new Error('Dictionary service failed to load - cannot build GADDAG');
+      throw new Error('Failed to load dictionary service');
     }
     
     console.log(`📖 Dictionary service loaded with ${dictionaryService.getDictionarySize()} words`);
     
-    // Try to load from SOWPODS file first
+    // Access the internal words set from the dictionary service
+    // We need to extract all words from the dictionary service
+    const words: string[] = [];
+    
+    // Since the dictionary service doesn't expose all words directly,
+    // we need to access them through the file system like the service does
     try {
       const fs = await import('fs');
       const path = await import('path');
       
-      // Try multiple possible locations for SOWPODS file
-      const possiblePaths = [
-        path.join(process.cwd(), 'public', 'sowpods.txt'),
-        path.join(process.cwd(), 'sowpods.txt'),
-        path.join(__dirname, '..', '..', '..', '..', 'public', 'sowpods.txt'),
-        path.join(__dirname, '..', '..', '..', 'sowpods.txt')
-      ];
-      
-      for (const filePath of possiblePaths) {
-        try {
-          if (fs.existsSync(filePath)) {
-            console.log(`📖 Loading SOWPODS from: ${filePath}`);
-            const text = fs.readFileSync(filePath, 'utf-8');
-            const fileWords = text.split('\n')
-              .map(word => word.trim().toUpperCase())
-              .filter(word => word.length >= 2 && word.length <= 15 && /^[A-Z]+$/.test(word));
-            
-            console.log(`📖 Successfully loaded ${fileWords.length} words from SOWPODS file`);
-            return fileWords;
-          }
-        } catch (fileError: any) {
-          console.log(`⚠️ Could not read ${filePath}: ${fileError?.message || 'Unknown error'}`);
-        }
+      // Try the same paths the dictionary service uses
+      const localPath = path.join(process.cwd(), 'public', 'sowpods.txt');
+      if (fs.existsSync(localPath)) {
+        console.log(`📖 Loading SOWPODS directly from: ${localPath}`);
+        const content = fs.readFileSync(localPath, 'utf8');
+        const fileWords = content.trim().split('\n')
+          .map(word => word.trim().toUpperCase())
+          .filter(word => word.length >= 2 && word.length <= 15 && /^[A-Z]+$/.test(word));
+        
+        console.log(`📖 Loaded ${fileWords.length} words from SOWPODS file`);
+        return fileWords;
       }
     } catch (error) {
-      console.log('⚠️ File system access failed, using dictionary service extraction');
+      console.log('⚠️ Could not access SOWPODS file directly');
     }
     
-    // If SOWPODS file not found, extract words from dictionary service
-    console.log('📖 Extracting words from dictionary service...');
-    
-    // Generate a comprehensive list of words by testing common patterns
-    const extractedWords: string[] = [];
-    
-    // Test all 2-letter combinations
-    console.log('🔍 Testing 2-letter words...');
-    for (let i = 0; i < 26; i++) {
-      for (let j = 0; j < 26; j++) {
-        const word = String.fromCharCode(65 + i) + String.fromCharCode(65 + j);
-        if (await dictionaryService.isValidWord(word)) {
-          extractedWords.push(word);
-        }
+    // If we can't access the file directly, download it ourselves
+    try {
+      console.log('📖 Downloading SOWPODS dictionary for GADDAG...');
+      const response = await fetch('https://www.wordgamedictionary.com/sowpods/download/sowpods.txt');
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
+      const content = await response.text();
+      const fileWords = content.trim().split('\n')
+        .map(word => word.trim().toUpperCase())
+        .filter(word => word.length >= 2 && word.length <= 15 && /^[A-Z]+$/.test(word));
+      
+      console.log(`📖 Downloaded and loaded ${fileWords.length} words for GADDAG`);
+      return fileWords;
+    } catch (error) {
+      console.error('Failed to download SOWPODS for GADDAG:', error);
+      throw new Error('Could not load dictionary for GADDAG construction');
     }
-    
-    // Test common 3-letter patterns
-    console.log('🔍 Testing 3-letter words...');
-    const commonLetters = 'AEIOURSTLNDHCMFPGWYBVKJXQZ';
-    for (let i = 0; i < commonLetters.length && extractedWords.length < 5000; i++) {
-      for (let j = 0; j < commonLetters.length; j++) {
-        for (let k = 0; k < commonLetters.length; k++) {
-          const word = commonLetters[i] + commonLetters[j] + commonLetters[k];
-          if (await dictionaryService.isValidWord(word)) {
-            extractedWords.push(word);
-          }
-        }
-      }
-    }
-    
-    // Test common 4-letter patterns (limited to prevent timeout)
-    console.log('🔍 Testing 4-letter words...');
-    const highFreqLetters = 'AEIOURSTLN';
-    for (let i = 0; i < highFreqLetters.length && extractedWords.length < 8000; i++) {
-      for (let j = 0; j < highFreqLetters.length; j++) {
-        for (let k = 0; k < highFreqLetters.length; k++) {
-          for (let l = 0; l < highFreqLetters.length; l++) {
-            const word = highFreqLetters[i] + highFreqLetters[j] + highFreqLetters[k] + highFreqLetters[l];
-            if (await dictionaryService.isValidWord(word)) {
-              extractedWords.push(word);
-            }
-          }
-        }
-      }
-    }
-    
-    // Add some known common words to ensure we have a good base
-    const knownWords = [
-      'THE', 'AND', 'FOR', 'ARE', 'BUT', 'NOT', 'YOU', 'ALL', 'CAN', 'HER', 'WAS', 'ONE', 'OUR', 'OUT',
-      'DAY', 'GET', 'HAS', 'HIM', 'HIS', 'HOW', 'ITS', 'MAY', 'NEW', 'NOW', 'OLD', 'SEE', 'TWO', 'WHO',
-      'CAT', 'DOG', 'RUN', 'SUN', 'BIG', 'RED', 'HOT', 'TOP', 'BAD', 'BAG', 'BED', 'BOX', 'CAR', 'CUP',
-      'THAT', 'WITH', 'HAVE', 'THIS', 'WILL', 'YOUR', 'FROM', 'THEY', 'KNOW', 'WANT', 'BEEN', 'GOOD',
-      'ABOUT', 'AFTER', 'AGAIN', 'BEING', 'COULD', 'EVERY', 'FIRST', 'FOUND', 'GREAT', 'GROUP', 'HOUSE'
-    ];
-    
-    for (const word of knownWords) {
-      if (await dictionaryService.isValidWord(word) && !extractedWords.includes(word)) {
-        extractedWords.push(word);
-      }
-    }
-    
-    console.log(`✅ Extracted ${extractedWords.length} words from dictionary service`);
-    
-    if (extractedWords.length < 100) {
-      throw new Error(`Insufficient words extracted (${extractedWords.length}) - dictionary service may be broken`);
-    }
-    
-    return extractedWords;
   }
 }
 
@@ -889,31 +831,35 @@ class SingletonGADDAGManager {
   }
 
   private static async createInstance(): Promise<ProductionGADDAGMoveGenerator> {
+    console.log('🔧 Creating singleton GADDAG instance...');
     const generator = new ProductionGADDAGMoveGenerator();
     await generator.initialize();
+    console.log('✅ Singleton GADDAG instance ready');
     return generator;
   }
 
   /**
-   * Check if ready without initializing
+   * Reset singleton (for testing purposes only)
    */
-  static async isReady(): Promise<boolean> {
-    return this.instance !== null;
-  }
-
-  /**
-   * Get statistics if available
-   */
-  static getStatistics(): {nodeCount: number, memoryUsage: number} | null {
-    return this.instance ? this.instance.getStatistics() : null;
+  static reset(): void {
+    this.instance = null;
+    this.isInitializing = false;
+    this.initPromise = null;
   }
 }
 
 /**
- * Production GADDAG Move Generator Singleton
+ * Production GADDAG Move Generator with Singleton Pattern
  */
-export const productionGADDAGMoveGenerator = {
-  async generateMoves(board: string[][], rack: string[]): Promise<Array<{
+export class ProductionGADDAGMoveGeneratorSingleton {
+  /**
+   * Generate moves using the singleton GADDAG instance
+   */
+  async generateMoves(
+    board: string[][],
+    rack: string[],
+    boardSize: number = 15
+  ): Promise<Array<{
     word: string;
     row: number;
     col: number;
@@ -921,24 +867,48 @@ export const productionGADDAGMoveGenerator = {
     score: number;
     tiles: Array<{letter: string, row: number, col: number}>;
   }>> {
-    const instance = await SingletonGADDAGManager.getInstance();
-    return instance.generateMoves(board, rack);
-  },
-
-  async isReady(): Promise<boolean> {
-    return SingletonGADDAGManager.isReady();
-  },
-
-  async getStatistics(): Promise<{nodeCount: number, memoryUsage: number}> {
-    const stats = SingletonGADDAGManager.getStatistics();
-    if (stats) return stats;
-    
-    // If not ready, return empty stats
-    return {nodeCount: 0, memoryUsage: 0};
-  },
-
-  async testWordLookup(word: string): Promise<boolean> {
-    const instance = await SingletonGADDAGManager.getInstance();
-    return instance.testWordLookup(word);
+    const generator = await SingletonGADDAGManager.getInstance();
+    return generator.generateMoves(board, rack, boardSize);
   }
-};
+
+  /**
+   * Test word lookup using singleton instance
+   */
+  async testWordLookup(word: string): Promise<boolean> {
+    const generator = await SingletonGADDAGManager.getInstance();
+    return generator.testWordLookup(word);
+  }
+
+  /**
+   * Get statistics from singleton instance
+   */
+  async getStatistics(): Promise<{nodeCount: number, memoryUsage: number}> {
+    const generator = await SingletonGADDAGManager.getInstance();
+    return generator.getStatistics();
+  }
+
+  /**
+   * Check if ready
+   */
+  async isReady(): Promise<boolean> {
+    try {
+      await SingletonGADDAGManager.getInstance();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+/**
+ * Reset the singleton instance (for fixing dictionary issues)
+ */
+export function resetProductionGADDAG(): void {
+  console.log('🔄 Resetting Production GADDAG singleton...');
+  SingletonGADDAGManager.reset();
+}
+
+/**
+ * Singleton instance for production use - prevents memory issues
+ */
+export const productionGADDAGMoveGenerator = new ProductionGADDAGMoveGeneratorSingleton();

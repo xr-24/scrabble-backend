@@ -8,7 +8,7 @@
  */
 
 import type { GameState, Player, Tile, PlacedTile } from '../types/game';
-import { productionGADDAGMoveGenerator } from './gaddag/ProductionGADDAGImplementation';
+import { productionGADDAGMoveGenerator, resetProductionGADDAG } from './gaddag/ProductionGADDAGImplementation';
 
 // Define interfaces for compatibility
 interface MoveCandidate {
@@ -104,10 +104,15 @@ export class GADDAGAIService {
    */
   async initialize(): Promise<void> {
     console.log('🤖 Initializing GADDAG AI Service...');
+    
+    // Reset the GADDAG singleton to ensure it rebuilds with proper dictionary
+    console.log('🔄 Resetting GADDAG to use proper dictionary...');
+    resetProductionGADDAG();
+    
     // Production GADDAG initializes automatically via singleton pattern
     const isReady = await productionGADDAGMoveGenerator.isReady();
     if (isReady) {
-      console.log('✅ GADDAG AI Service ready!');
+      console.log('✅ GADDAG AI Service ready with proper dictionary!');
     } else {
       throw new Error('Failed to initialize Production GADDAG');
     }
