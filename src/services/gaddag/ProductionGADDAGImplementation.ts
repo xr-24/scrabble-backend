@@ -9,7 +9,7 @@
 import { dictionaryService } from '../dictionaryService';
 
 /**
- * GADDAG Node - exact mirror of Quackle's GaddagNode
+ * Production GADDAG Node - memory-efficient version
  */
 export class ProductionGADDAGNode {
   private children: Map<string, ProductionGADDAGNode> = new Map();
@@ -90,30 +90,52 @@ export class ProductionGADDAGNode {
 }
 
 /**
- * Production GADDAG Builder - mirrors Quackle's GADDAG construction
+ * Production GADDAG Builder - memory-optimized with node deduplication
  */
 export class ProductionGADDAGBuilder {
   private nodeCounter: number = 1;
   private readonly GADDAG_SEPARATOR = '_';
+  private nodeCache: Map<string, ProductionGADDAGNode> = new Map();
 
   /**
-   * Build GADDAG from dictionary - mirrors Quackle's approach
+   * Build GADDAG from dictionary - memory-optimized approach
    */
   async buildGADDAG(): Promise<ProductionGADDAGNode> {
-    console.log('🔧 Building Production GADDAG (Quackle algorithm)...');
+    console.log('🔧 Building Production GADDAG (Memory-Optimized)...');
     
     const root = new ProductionGADDAGNode(this.nodeCounter++);
     
     // Load comprehensive word list
     const words = await this.loadComprehensiveWordList();
-    console.log(`📚 Processing ${words.length} words`);
+    console.log(`📚 Processing ${words.length} words with memory optimization`);
     
-    // Process each word using Quackle's algorithm
-    for (const word of words) {
-      this.addWordToGADDAG(root, word.toUpperCase());
+    // Process words in batches to manage memory
+    const batchSize = 5000;
+    let processed = 0;
+    
+    for (let i = 0; i < words.length; i += batchSize) {
+      const batch = words.slice(i, i + batchSize);
+      
+      for (const word of batch) {
+        this.addWordToGADDAG(root, word.toUpperCase());
+        processed++;
+        
+        // Periodic progress and memory management
+        if (processed % 10000 === 0) {
+          console.log(`📊 Processed ${processed}/${words.length} words (${this.nodeCounter} nodes)`);
+          
+          // Force garbage collection if available
+          if (global.gc) {
+            global.gc();
+          }
+        }
+      }
+      
+      // Small delay between batches to allow garbage collection
+      await new Promise(resolve => setTimeout(resolve, 10));
     }
     
-    console.log('✅ Production GADDAG construction complete');
+    console.log(`✅ Production GADDAG construction complete: ${this.nodeCounter} nodes`);
     return root;
   }
 
@@ -159,15 +181,32 @@ export class ProductionGADDAGBuilder {
   }
 
   /**
-   * Insert a path into the GADDAG trie
+   * Insert a path into the GADDAG trie with node deduplication
    */
   private insertPath(root: ProductionGADDAGNode, path: string): void {
     let current = root;
+    let pathSoFar = '';
     
     for (const char of path) {
+      pathSoFar += char;
       let child = current.child(char);
+      
       if (!child) {
-        child = new ProductionGADDAGNode(this.nodeCounter++);
+        // Check if we can reuse an existing node for this path suffix
+        const remainingPath = path.substring(pathSoFar.length - 1);
+        const cachedNode = this.nodeCache.get(remainingPath);
+        
+        if (cachedNode) {
+          child = cachedNode;
+        } else {
+          child = new ProductionGADDAGNode(this.nodeCounter++);
+          
+          // Cache this node for potential reuse
+          if (remainingPath.length <= 10) { // Only cache shorter suffixes
+            this.nodeCache.set(remainingPath, child);
+          }
+        }
+        
         current.addChild(char, child);
       }
       current = child;
