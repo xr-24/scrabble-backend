@@ -446,6 +446,14 @@ export class QuackleGADDAGAIService {
         availableTile = playerTiles.find(t => 
           t.isBlank && !usedTileIds.includes(t.id)
         );
+        
+        if (availableTile) {
+          // Create a copy of the blank tile with the assigned letter
+          availableTile = {
+            ...availableTile,
+            letter: letter
+          };
+        }
       }
       
       if (availableTile) {
@@ -455,6 +463,9 @@ export class QuackleGADDAGAIService {
           col
         });
         usedTileIds.push(availableTile.id);
+      } else {
+        console.warn(`Could not find tile for letter ${letter} in word ${word}`);
+        return []; // Return empty array if we can't place the word
       }
     }
     
