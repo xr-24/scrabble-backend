@@ -500,35 +500,53 @@ export class GADDAGAIService {
     }>,
     playerTiles: Tile[]
   ): MoveCandidate[] {
-    return rawMoves.map(move => {
-      const placedTiles: PlacedTile[] = move.tiles.map(tilePos => {
-        // Find matching tile from player's rack
+    const validMoves: MoveCandidate[] = [];
+    
+    for (const move of rawMoves) {
+      const placedTiles: PlacedTile[] = [];
+      let isValidMove = true;
+      const usedTileIds = new Set<string>();
+      
+      for (const tilePos of move.tiles) {
+        // Find matching tile from player's rack that hasn't been used yet
         const matchingTile = playerTiles.find(t => 
-          t.letter === tilePos.letter || t.isBlank
+          !usedTileIds.has(t.id) && (
+            t.letter === tilePos.letter || 
+            (t.isBlank && tilePos.letter !== ' ')
+          )
         );
         
-        return {
-          tile: matchingTile || {
-            id: `temp-${tilePos.letter}`,
-            letter: tilePos.letter,
-            value: this.getLetterValue(tilePos.letter),
-            isBlank: false
-          },
+        if (!matchingTile) {
+          // Can't find a valid tile for this position - skip this move
+          isValidMove = false;
+          break;
+        }
+        
+        // Mark this tile as used for this move
+        usedTileIds.add(matchingTile.id);
+        
+        placedTiles.push({
+          tile: matchingTile,
           row: tilePos.row,
           col: tilePos.col
-        };
-      });
-
-      return {
-        word: move.word,
-        tiles: placedTiles,
-        score: move.score,
-        row: move.row,
-        col: move.col,
-        direction: move.direction,
-        usesBlank: placedTiles.some(pt => pt.tile.isBlank)
-      };
-    });
+        });
+      }
+      
+      // Only add moves where we can satisfy all tile requirements
+      if (isValidMove && placedTiles.length > 0) {
+        validMoves.push({
+          word: move.word,
+          tiles: placedTiles,
+          score: move.score,
+          row: move.row,
+          col: move.col,
+          direction: move.direction,
+          usesBlank: placedTiles.some(pt => pt.tile.isBlank)
+        });
+      }
+    }
+    
+    return validMoves;
   }
 
   /**
