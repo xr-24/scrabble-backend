@@ -26,36 +26,50 @@ class WordTrie {
     const startTime = Date.now();
     
     try {
-      // Load from local file
-      const localPath = path.join(process.cwd(), 'public', 'sowpods.txt');
-      if (fs.existsSync(localPath)) {
-        const content = fs.readFileSync(localPath, 'utf8');
-        const words = content.trim().split('\n').map(word => word.trim().toUpperCase());
-        
-        console.log(`📚 Processing ${words.length} words...`);
-        
-        for (const word of words) {
-          if (word.length >= 2 && word.length <= 15) { // Valid Scrabble word lengths
-            this.insertWord(word);
-            this.wordCount++;
+      // Try multiple possible paths for the dictionary
+      const possiblePaths = [
+        path.join(process.cwd(), 'public', 'sowpods.txt'),
+        path.join(process.cwd(), 'scrabble-backend', 'public', 'sowpods.txt'),
+        path.join(__dirname, '..', '..', '..', 'public', 'sowpods.txt'),
+        path.join(__dirname, '..', '..', 'public', 'sowpods.txt')
+      ];
+      
+      let dictionaryLoaded = false;
+      
+      for (const dictPath of possiblePaths) {
+        if (fs.existsSync(dictPath)) {
+          console.log(`📖 Found dictionary at: ${dictPath}`);
+          const content = fs.readFileSync(dictPath, 'utf8');
+          const words = content.trim().split('\n').map(word => word.trim().toUpperCase()).filter(word => word.length > 0);
+          
+          console.log(`📚 Processing ${words.length} words...`);
+          
+          for (const word of words) {
+            if (word.length >= 2 && word.length <= 15) { // Valid Scrabble word lengths
+              this.insertWord(word);
+              this.wordCount++;
+            }
           }
+          
+          this.isLoaded = true;
+          dictionaryLoaded = true;
+          const elapsedTime = Date.now() - startTime;
+          console.log(`🔥 Dictionary loaded: ${this.wordCount} words in ${elapsedTime}ms`);
+          return;
         }
-        
-        this.isLoaded = true;
-        const elapsedTime = Date.now() - startTime;
-        console.log(`🔥 Dictionary loaded: ${this.wordCount} words in ${elapsedTime}ms`);
-        return;
+      }
+      
+      if (!dictionaryLoaded) {
+        console.log('📖 Dictionary file not found, using comprehensive fallback...');
       }
     } catch (error) {
       console.error('Failed to load local dictionary:', error);
+      console.log('📡 Using comprehensive fallback dictionary...');
     }
 
-    // Fallback to existing dictionary service
-    console.log('📡 Falling back to dictionary service...');
-    await dictionaryService.loadDictionary();
-    
-    // Build trie from dictionary service (this is a simplified fallback)
-    const commonWords = [
+    // Enhanced fallback with much more comprehensive word list
+    console.log('📡 Building comprehensive fallback dictionary...');
+    const comprehensiveWords = [
       // 2-letter words
       'AA', 'AB', 'AD', 'AE', 'AG', 'AH', 'AI', 'AL', 'AM', 'AN', 'AR', 'AS', 'AT', 'AW', 'AX', 'AY',
       'BA', 'BE', 'BI', 'BO', 'BY', 'DA', 'DE', 'DO', 'ED', 'EF', 'EH', 'EL', 'EM', 'EN', 'ER', 'ES', 'ET', 'EX',
@@ -89,7 +103,7 @@ class WordTrie {
       'QUICKLY', 'QUALIFY', 'SQUEEZE', 'BUZZARD', 'QUIZZED', 'PUZZLED', 'SIZZLED', 'FIZZLED'
     ];
 
-    for (const word of commonWords) {
+    for (const word of comprehensiveWords) {
       this.insertWord(word.toUpperCase());
       this.wordCount++;
     }
