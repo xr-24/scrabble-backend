@@ -311,6 +311,11 @@ export function registerGameEvents(socket: Socket, io: Server) {
           playerName: context.player.name,
           moveResult: result.moveResult
         });
+        
+        // Check if next player is AI and execute their move
+        setTimeout(() => {
+          gameService.checkAndExecuteAITurn(context.roomId, io);
+        }, 500);
       }
     } catch (error) {
       console.error('Error committing move:', error);
