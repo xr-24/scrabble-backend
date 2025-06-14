@@ -463,7 +463,7 @@ export class ProductionGADDAGMoveGenerator {
         if (!child) continue;
 
         // Check cross-word constraints
-        if (!this.isValidCrossWord(currentRow, currentCol, letter, direction, board, boardSize)) {
+        if (!(await this.isValidCrossWord(currentRow, currentCol, letter, direction, board, boardSize))) {
           continue;
         }
 
@@ -648,15 +648,73 @@ export class ProductionGADDAGMoveGenerator {
   /**
    * Check if placing a letter creates valid cross-words
    */
-  private isValidCrossWord(
+  private async isValidCrossWord(
     row: number,
     col: number,
     letter: string,
     direction: 'HORIZONTAL' | 'VERTICAL',
     board: string[][],
     boardSize: number
-  ): boolean {
-    // For now, return true - full cross-word validation would require dictionary lookup
+  ): Promise<boolean> {
+    // Check cross-word in the perpendicular direction
+    const crossDirection = direction === 'HORIZONTAL' ? 'VERTICAL' : 'HORIZONTAL';
+    
+    // Find the start and end of the cross-word
+    let startRow = row;
+    let startCol = col;
+    let endRow = row;
+    let endCol = col;
+    
+    if (crossDirection === 'HORIZONTAL') {
+      // Find start of horizontal cross-word
+      while (startCol > 0 && board[row][startCol - 1] && board[row][startCol - 1] !== ' ') {
+        startCol--;
+      }
+      // Find end of horizontal cross-word
+      while (endCol < boardSize - 1 && board[row][endCol + 1] && board[row][endCol + 1] !== ' ') {
+        endCol++;
+      }
+    } else {
+      // Find start of vertical cross-word
+      while (startRow > 0 && board[startRow - 1][col] && board[startRow - 1][col] !== ' ') {
+        startRow--;
+      }
+      // Find end of vertical cross-word
+      while (endRow < boardSize - 1 && board[endRow + 1][col] && board[endRow + 1][col] !== ' ') {
+        endRow++;
+      }
+    }
+    
+    // If there are no adjacent tiles, no cross-word is formed
+    if (startRow === endRow && startCol === endCol) {
+      return true;
+    }
+    
+    // Build the cross-word
+    let crossWord = '';
+    if (crossDirection === 'HORIZONTAL') {
+      for (let c = startCol; c <= endCol; c++) {
+        if (c === col) {
+          crossWord += letter;
+        } else {
+          crossWord += board[row][c] || ' ';
+        }
+      }
+    } else {
+      for (let r = startRow; r <= endRow; r++) {
+        if (r === row) {
+          crossWord += letter;
+        } else {
+          crossWord += board[r][col] || ' ';
+        }
+      }
+    }
+    
+    // Validate the cross-word if it's more than one letter
+    if (crossWord.length > 1) {
+      return await dictionaryService.isValidWord(crossWord);
+    }
+    
     return true;
   }
 
