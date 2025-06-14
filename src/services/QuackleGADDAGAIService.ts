@@ -182,7 +182,7 @@ export class QuackleGADDAGAIService {
       
       console.log(`⚡ ${player.name} plays "${bestMove.word}" for ${bestMove.score} points (equity: ${bestMove.equity}) (${elapsedTime}ms)`);
       
-      const placedTiles = await this.convertGaddagMoveToPlacedTiles(bestMove, player.tiles);
+      const placedTiles = await this.convertGaddagMoveToPlacedTiles(bestMove, player.tiles, gameState.board);
       
       return {
         type: 'WORD',
@@ -317,7 +317,7 @@ export class QuackleGADDAGAIService {
     }).join('');
   }
 
-  private async convertGaddagMoveToPlacedTiles(move: Move, playerTiles: Tile[]): Promise<PlacedTile[]> {
+  private async convertGaddagMoveToPlacedTiles(move: Move, playerTiles: Tile[], gameBoard: BoardCell[][]): Promise<PlacedTile[]> {
     const placedTiles: PlacedTile[] = [];
     const usedTileIds: string[] = [];
     
@@ -331,6 +331,11 @@ export class QuackleGADDAGAIService {
       const row = isHorizontal ? startRow : startRow + i;
       const col = isHorizontal ? startCol + i : startCol;
       const letter = word[i].toUpperCase();
+      
+      // Skip if there's already a tile at this position
+      if (gameBoard[row] && gameBoard[row][col] && gameBoard[row][col].tile) {
+        continue;
+      }
       
       // Find available tile for this letter
       let availableTile = playerTiles.find(t => 
