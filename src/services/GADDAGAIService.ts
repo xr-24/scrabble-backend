@@ -8,7 +8,7 @@
  */
 
 import type { GameState, Player, Tile, PlacedTile } from '../types/game';
-import { productionGADDAGMoveGenerator, resetProductionGADDAG } from './gaddag/ProductionGADDAGImplementation';
+import { correctGADDAGMoveGenerator, resetCorrectGADDAG } from './gaddag/CorrectGADDAGImplementation';
 
 // Define interfaces for compatibility
 interface MoveCandidate {
@@ -107,10 +107,10 @@ export class GADDAGAIService {
     
     // Reset the GADDAG singleton to ensure it rebuilds with proper dictionary
     console.log('🔄 Resetting GADDAG to use proper dictionary...');
-    resetProductionGADDAG();
+    resetCorrectGADDAG();
     
-    // Production GADDAG initializes automatically via singleton pattern
-    const isReady = await productionGADDAGMoveGenerator.isReady();
+    // Correct GADDAG initializes automatically via singleton pattern
+    const isReady = await correctGADDAGMoveGenerator.isReady();
     if (isReady) {
       console.log('✅ GADDAG AI Service ready with proper dictionary!');
     } else {
@@ -154,34 +154,34 @@ export class GADDAGAIService {
       // Get AI personality
       const personality = this.getPlayerPersonality(player.name);
       
-      // Configure move generation based on personality
-      const config = this.createMoveGenerationConfig(personality, gameState);
-      
-      // Convert game state to format expected by production GADDAG
-      const board = this.convertGameStateToBoard(gameState);
-      const rack = player.tiles.map(tile => tile.letter);
-      
-      // Generate moves using Production GADDAG
-      const rawMoves = await productionGADDAGMoveGenerator.generateMoves(board, rack);
-      
-      // Convert to our MoveCandidate format
-      const candidates = this.convertToMoveCandidates(rawMoves, player.tiles);
-      
-      if (candidates.length === 0) {
-        console.log(`🔄 ${player.name} executes strategic exchange`);
-        return this.generateStrategicExchange(player.tiles, personality);
+      // Try GADDAG first, but with validation
+      const gaddagMove = await this.tryGADDAGMove(gameState, player, personality);
+      if (gaddagMove) {
+        const elapsedTime = Date.now() - startTime;
+        console.log(`🎯 ${player.name} plays "${gaddagMove.word}" for ${gaddagMove.score} points (${elapsedTime}ms)`);
+        
+        return {
+          type: 'WORD',
+          tiles: gaddagMove.tiles
+        };
       }
 
-      // Select move based on personality and game state
-      const selectedMove = this.selectMoveByPersonality(candidates, personality, gameState, player);
-      
-      const elapsedTime = Date.now() - startTime;
-      console.log(`🎯 ${player.name} plays "${selectedMove.word}" for ${selectedMove.score} points (${elapsedTime}ms)`);
-      
-      return {
-        type: 'WORD',
-        tiles: selectedMove.tiles
-      };
+      // Fallback to simple word generation if GADDAG fails
+      console.log(`⚠️ ${player.name} falling back to simple word generation`);
+      const simpleMove = await this.generateSimpleMove(gameState, player, personality);
+      if (simpleMove) {
+        const elapsedTime = Date.now() - startTime;
+        console.log(`🎯 ${player.name} plays "${simpleMove.word}" for ${simpleMove.score} points (${elapsedTime}ms)`);
+        
+        return {
+          type: 'WORD',
+          tiles: simpleMove.tiles
+        };
+      }
+
+      // If all else fails, exchange tiles
+      console.log(`🔄 ${player.name} executes strategic exchange`);
+      return this.generateStrategicExchange(player.tiles, personality);
 
     } catch (error) {
       console.error(`💀 ${player.name} AI error:`, error);
@@ -570,8 +570,8 @@ export class GADDAGAIService {
    * Get AI service statistics
    */
   async getStatistics() {
-    const gaddagStats = await productionGADDAGMoveGenerator.getStatistics();
-    const isReady = await productionGADDAGMoveGenerator.isReady();
+    const gaddagStats = await correctGADDAGMoveGenerator.getStatistics();
+    const isReady = await correctGADDAGMoveGenerator.isReady();
     
     return {
       isReady,
@@ -582,10 +582,247 @@ export class GADDAGAIService {
   }
 
   /**
+   * Try to generate a move using GADDAG with validation
+   */
+  private async tryGADDAGMove(gameState: GameState, player: Player, personality: AIPersonality): Promise<MoveCandidate | null> {
+    try {
+      // Configure move generation based on personality
+      const config = this.createMoveGenerationConfig(personality, gameState);
+      
+      // Convert game state to format expected by production GADDAG
+      const board = this.convertGameStateToBoard(gameState);
+      const rack = player.tiles.map(tile => tile.letter);
+      
+      // Generate moves using Correct GADDAG
+      const rawMoves = await correctGADDAGMoveGenerator.generateMoves(board, rack);
+      
+      // Convert to our MoveCandidate format
+      const candidates = this.convertToMoveCandidates(rawMoves, player.tiles);
+      
+      if (candidates.length === 0) {
+        return null;
+      }
+
+      // Select move based on personality and game state
+      const selectedMove = this.selectMoveByPersonality(candidates, personality, gameState, player);
+      return selectedMove;
+      
+    } catch (error) {
+      console.error(`GADDAG move generation failed for ${player.name}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Generate a simple move using basic word patterns (fallback)
+   */
+  private async generateSimpleMove(gameState: GameState, player: Player, personality: AIPersonality): Promise<MoveCandidate | null> {
+    try {
+      // Simple fallback: try to form basic 2-3 letter words
+      const board = gameState.board;
+      const rack = player.tiles;
+      
+      // Look for existing tiles on the board to build off of
+      for (let row = 0; row < 15; row++) {
+        for (let col = 0; col < 15; col++) {
+          const cell = board[row][col];
+          if (cell.tile) {
+            // Try to add a letter before or after this tile
+            const moves = this.generateSimpleAdjacentMoves(board, rack, row, col, personality);
+            if (moves.length > 0) {
+              return moves[0]; // Return the first valid move
+            }
+          }
+        }
+      }
+      
+      // If no existing tiles, try to place a simple word at center
+      if (this.isBoardEmpty(board)) {
+        return this.generateCenterMove(rack, personality);
+      }
+      
+      return null;
+    } catch (error) {
+      console.error(`Simple move generation failed for ${player.name}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Generate simple moves adjacent to existing tiles
+   */
+  private generateSimpleAdjacentMoves(board: any[][], rack: Tile[], row: number, col: number, personality: AIPersonality): MoveCandidate[] {
+    const moves: MoveCandidate[] = [];
+    const existingLetter = board[row][col].tile?.letter;
+    
+    if (!existingLetter) return moves;
+    
+    // Try simple 2-letter combinations
+    const simpleWords = this.getSimpleWords(existingLetter, rack);
+    
+    for (const wordData of simpleWords) {
+      // Try horizontal placement (add letter to the right)
+      if (col + 1 < 15 && !board[row][col + 1].tile) {
+        const move = this.createSimpleMove(wordData.word, row, col, 'HORIZONTAL', wordData.tiles, rack);
+        if (move) moves.push(move);
+      }
+      
+      // Try horizontal placement (add letter to the left)
+      if (col - 1 >= 0 && !board[row][col - 1].tile) {
+        const move = this.createSimpleMove(wordData.word, row, col - 1, 'HORIZONTAL', wordData.tiles, rack);
+        if (move) moves.push(move);
+      }
+      
+      // Try vertical placement (add letter below)
+      if (row + 1 < 15 && !board[row + 1][col].tile) {
+        const move = this.createSimpleMove(wordData.word, row, col, 'VERTICAL', wordData.tiles, rack);
+        if (move) moves.push(move);
+      }
+      
+      // Try vertical placement (add letter above)
+      if (row - 1 >= 0 && !board[row - 1][col].tile) {
+        const move = this.createSimpleMove(wordData.word, row - 1, col, 'VERTICAL', wordData.tiles, rack);
+        if (move) moves.push(move);
+      }
+    }
+    
+    return moves;
+  }
+
+  /**
+   * Get simple 2-letter words that can be formed
+   */
+  private getSimpleWords(existingLetter: string, rack: Tile[]): Array<{word: string, tiles: Tile[]}> {
+    const words: Array<{word: string, tiles: Tile[]}> = [];
+    
+    // Common 2-letter words
+    const commonWords = [
+      'AN', 'AT', 'BE', 'DO', 'GO', 'HE', 'IF', 'IN', 'IS', 'IT', 'ME', 'MY', 'NO', 'OF', 'ON', 'OR', 'SO', 'TO', 'UP', 'WE'
+    ];
+    
+    for (const word of commonWords) {
+      if (word.includes(existingLetter)) {
+        const neededLetter = word.replace(existingLetter, '');
+        const tile = rack.find(t => t.letter === neededLetter || t.isBlank);
+        if (tile) {
+          words.push({ word, tiles: [tile] });
+        }
+      }
+    }
+    
+    return words;
+  }
+
+  /**
+   * Create a simple move object
+   */
+  private createSimpleMove(word: string, row: number, col: number, direction: 'HORIZONTAL' | 'VERTICAL', tiles: Tile[], rack: Tile[]): MoveCandidate | null {
+    try {
+      const placedTiles: PlacedTile[] = [];
+      
+      for (let i = 0; i < word.length; i++) {
+        const letter = word[i];
+        const tileRow = direction === 'VERTICAL' ? row + i : row;
+        const tileCol = direction === 'HORIZONTAL' ? col + i : col;
+        
+        // Find tile from rack for this letter
+        const tile = tiles.find(t => t.letter === letter || t.isBlank);
+        if (tile) {
+          placedTiles.push({
+            tile,
+            row: tileRow,
+            col: tileCol
+          });
+        }
+      }
+      
+      if (placedTiles.length === 0) return null;
+      
+      // Calculate basic score
+      const score = word.length * 3; // Simple scoring
+      
+      return {
+        word,
+        tiles: placedTiles,
+        score,
+        row,
+        col,
+        direction,
+        usesBlank: placedTiles.some(pt => pt.tile.isBlank)
+      };
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
+   * Check if the board is empty
+   */
+  private isBoardEmpty(board: any[][]): boolean {
+    for (let row = 0; row < 15; row++) {
+      for (let col = 0; col < 15; col++) {
+        if (board[row][col].tile) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Generate a move for the center of the board (first move)
+   */
+  private generateCenterMove(rack: Tile[], personality: AIPersonality): MoveCandidate | null {
+    // Try to form a simple word starting at center (7,7)
+    const centerRow = 7;
+    const centerCol = 7;
+    
+    // Simple 3-letter words that are commonly known
+    const simpleWords = ['CAT', 'DOG', 'THE', 'AND', 'FOR', 'ARE', 'BUT', 'NOT', 'YOU', 'ALL'];
+    
+    for (const word of simpleWords) {
+      const tiles: PlacedTile[] = [];
+      let canForm = true;
+      const usedTileIds = new Set<string>();
+      
+      for (let i = 0; i < word.length; i++) {
+        const letter = word[i];
+        const tile = rack.find(t => !usedTileIds.has(t.id) && (t.letter === letter || t.isBlank));
+        
+        if (!tile) {
+          canForm = false;
+          break;
+        }
+        
+        usedTileIds.add(tile.id);
+        tiles.push({
+          tile,
+          row: centerRow,
+          col: centerCol + i
+        });
+      }
+      
+      if (canForm && tiles.length > 0) {
+        return {
+          word,
+          tiles,
+          score: word.length * 4, // Center square bonus
+          row: centerRow,
+          col: centerCol,
+          direction: 'HORIZONTAL',
+          usesBlank: tiles.some(pt => pt.tile.isBlank)
+        };
+      }
+    }
+    
+    return null;
+  }
+
+  /**
    * Check if the service is ready
    */
   async isReady(): Promise<boolean> {
-    return await productionGADDAGMoveGenerator.isReady();
+    return await correctGADDAGMoveGenerator.isReady();
   }
 }
 
