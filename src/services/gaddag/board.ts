@@ -206,18 +206,46 @@ export class Board {
     for (let rr = r + 1; rr < BOARD_SIZE && this.tiles[index(rr, c)]; ++rr)
       below.push(this.tiles[index(rr, c)]);
 
-    if (!above.length && !below.length) {
-      this.crossMask[i] = ALL_MASK; // no fragment → any letter allowed
+    /* build horizontal fragment (affects vertical placements) */
+    const left: number[] = [];
+    for (let cc = c - 1; cc >= 0 && this.tiles[index(r, cc)]; --cc)
+      left.unshift(this.tiles[index(r, cc)]);
+    const right: number[] = [];
+    for (let cc = c + 1; cc < BOARD_SIZE && this.tiles[index(r, cc)]; ++cc)
+      right.push(this.tiles[index(r, cc)]);
+
+    /* if no fragments in either direction, allow all letters */
+    if (!above.length && !below.length && !left.length && !right.length) {
+      this.crossMask[i] = ALL_MASK;
       return;
     }
 
-    let mask = 0;
-    const pre = String.fromCharCode(...above);
-    const suf = String.fromCharCode(...below);
-    for (let L = 65; L <= 90; ++L) {
-      const candidate = pre + String.fromCharCode(L) + suf;
-      if (this.dict.has(candidate)) mask |= 1 << (L - 65);
+    let mask = ALL_MASK; // start with all letters allowed
+
+    /* restrict based on vertical fragment (for horizontal moves) */
+    if (above.length || below.length) {
+      let verticalMask = 0;
+      const pre = String.fromCharCode(...above);
+      const suf = String.fromCharCode(...below);
+      for (let L = 65; L <= 90; ++L) {
+        const candidate = pre + String.fromCharCode(L) + suf;
+        if (this.dict.has(candidate)) verticalMask |= 1 << (L - 65);
+      }
+      mask &= verticalMask;
     }
+
+    /* restrict based on horizontal fragment (for vertical moves) */
+    if (left.length || right.length) {
+      let horizontalMask = 0;
+      const pre = String.fromCharCode(...left);
+      const suf = String.fromCharCode(...right);
+      for (let L = 65; L <= 90; ++L) {
+        const candidate = pre + String.fromCharCode(L) + suf;
+        if (this.dict.has(candidate)) horizontalMask |= 1 << (L - 65);
+      }
+      mask &= horizontalMask;
+    }
+
     this.crossMask[i] = mask;
   }
 }
