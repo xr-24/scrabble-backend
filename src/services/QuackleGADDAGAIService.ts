@@ -201,57 +201,55 @@ export class QuackleGADDAGAIService {
 
     const board = new Board(this.dictionary);
     
-    // Collect all existing tiles to place as a single word
-    const existingTiles: { row: number; col: number; letter: string }[] = [];
+    // Simply place each tile individually - the Board class will handle cross-checks
+    for (let row = 0; row < BOARD_SIZE; row++) {
+      for (let col = 0; col < BOARD_SIZE; col++) {
+        const cell = gameBoard[row][col];
+        if (cell.tile) {
+          const letter = cell.tile.letter.toUpperCase();
+          const code = letter.charCodeAt(0);
+          board.set(row, col, code);
+        }
+      }
+    }
+    
+    // Force a full recompute to set up cross-checks properly
+    // We need to access the private method, so we'll use a workaround
+    // by creating a new board and copying the tiles
+    const freshBoard = new Board(this.dictionary);
+    for (let row = 0; row < BOARD_SIZE; row++) {
+      for (let col = 0; col < BOARD_SIZE; col++) {
+        const cell = gameBoard[row][col];
+        if (cell.tile) {
+          const letter = cell.tile.letter.toUpperCase();
+          const code = letter.charCodeAt(0);
+          freshBoard.set(row, col, code);
+        }
+      }
+    }
+    
+    // Use the place method to trigger proper cross-check updates
+    // Place tiles one by one to ensure proper cross-check computation
+    const finalBoard = new Board(this.dictionary);
+    const placedTiles: { row: number; col: number; code: number }[] = [];
     
     for (let row = 0; row < BOARD_SIZE; row++) {
       for (let col = 0; col < BOARD_SIZE; col++) {
         const cell = gameBoard[row][col];
         if (cell.tile) {
-          existingTiles.push({
-            row,
-            col,
-            letter: cell.tile.letter.toUpperCase()
-          });
+          const letter = cell.tile.letter.toUpperCase();
+          const code = letter.charCodeAt(0);
+          placedTiles.push({ row, col, code });
         }
       }
     }
     
-    // Place existing tiles using the board's place method
-    // Group tiles by words (horizontal and vertical sequences)
-    const placedPositions = new Set<string>();
-    
-    for (const tile of existingTiles) {
-      const posKey = `${tile.row}-${tile.col}`;
-      if (placedPositions.has(posKey)) continue;
-      
-      // Try to find horizontal word starting from this position
-      const hWord = this.findWordFromPosition(tile.row, tile.col, 'H', existingTiles);
-      if (hWord.length > 1) {
-        const codes = hWord.map(t => t.letter.charCodeAt(0));
-        board.place(hWord[0].row, hWord[0].col, 'H', codes);
-        hWord.forEach(t => placedPositions.add(`${t.row}-${t.col}`));
-        continue;
-      }
-      
-      // Try to find vertical word starting from this position
-      const vWord = this.findWordFromPosition(tile.row, tile.col, 'V', existingTiles);
-      if (vWord.length > 1) {
-        const codes = vWord.map(t => t.letter.charCodeAt(0));
-        board.place(vWord[0].row, vWord[0].col, 'V', codes);
-        vWord.forEach(t => placedPositions.add(`${t.row}-${t.col}`));
-        continue;
-      }
-      
-      // Single tile - place as 1-letter word
-      if (!placedPositions.has(posKey)) {
-        const codes = [tile.letter.charCodeAt(0)];
-        board.place(tile.row, tile.col, 'H', codes);
-        placedPositions.add(posKey);
-      }
+    // Place tiles in order to trigger incremental updates
+    for (const { row, col, code } of placedTiles) {
+      finalBoard.place(row, col, 'H', [code]);
     }
     
-    return board;
+    return finalBoard;
   }
 
   private findWordFromPosition(
