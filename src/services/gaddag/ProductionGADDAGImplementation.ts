@@ -180,9 +180,18 @@ export class ProductionGADDAGBuilder {
    * Load comprehensive word list for production use
    */
   private async loadComprehensiveWordList(): Promise<string[]> {
-    const words: Set<string> = new Set();
+    console.log('🔧 Loading dictionary for GADDAG construction...');
     
-    // Try to load from SOWPODS file using proper Node.js file system
+    // First, ensure dictionary service is loaded
+    await dictionaryService.loadDictionary();
+    
+    if (!dictionaryService.isDictionaryLoaded()) {
+      throw new Error('Dictionary service failed to load - cannot build GADDAG');
+    }
+    
+    console.log(`📖 Dictionary service loaded with ${dictionaryService.getDictionarySize()} words`);
+    
+    // Try to load from SOWPODS file first
     try {
       const fs = await import('fs');
       const path = await import('path');
@@ -204,80 +213,86 @@ export class ProductionGADDAGBuilder {
               .map(word => word.trim().toUpperCase())
               .filter(word => word.length >= 2 && word.length <= 15 && /^[A-Z]+$/.test(word));
             
-            console.log(`📖 Loaded ${fileWords.length} words from SOWPODS file`);
-            fileWords.forEach(word => words.add(word));
-            
-            if (words.size > 10000) {
-              return Array.from(words);
-            }
+            console.log(`📖 Successfully loaded ${fileWords.length} words from SOWPODS file`);
+            return fileWords;
           }
         } catch (fileError: any) {
           console.log(`⚠️ Could not read ${filePath}: ${fileError?.message || 'Unknown error'}`);
         }
       }
-      
-      // If file loading fails, try using existing dictionary service
-      console.log('⚠️ SOWPODS file not found, trying dictionary service...');
-      const { dictionaryService } = await import('../dictionaryService');
-      
-      // Load dictionary and extract words from the service
-      try {
-        await dictionaryService.loadDictionary();
-        if (dictionaryService.isDictionaryLoaded()) {
-          const dictionarySize = dictionaryService.getDictionarySize();
-          console.log(`📖 Dictionary service has ${dictionarySize} words`);
-          
-          // Since we can't get all words directly, we'll use the fallback list
-          // but validate each word against the dictionary service
-          console.log('📖 Using dictionary service for word validation');
-        }
-      } catch (serviceError: any) {
-        console.log(`⚠️ Dictionary service error: ${serviceError?.message || 'Unknown error'}`);
-      }
-      
     } catch (error) {
-      console.log('⚠️ Could not load SOWPODS file or dictionary service, using fallback word list');
+      console.log('⚠️ File system access failed, using dictionary service extraction');
     }
     
-    // Fallback: comprehensive hardcoded word list
-    const fallbackWords = [
-      // All valid 2-letter words
-      'AA', 'AB', 'AD', 'AE', 'AG', 'AH', 'AI', 'AL', 'AM', 'AN', 'AR', 'AS', 'AT', 'AW', 'AX', 'AY',
-      'BA', 'BE', 'BI', 'BO', 'BY', 'DA', 'DE', 'DO', 'ED', 'EF', 'EH', 'EL', 'EM', 'EN', 'ER', 'ES', 'ET', 'EX',
-      'FA', 'FE', 'GO', 'HA', 'HE', 'HI', 'HM', 'HO', 'ID', 'IF', 'IN', 'IS', 'IT', 'JO', 'KA', 'KI',
-      'LA', 'LI', 'LO', 'MA', 'ME', 'MI', 'MM', 'MO', 'MU', 'MY', 'NA', 'NE', 'NO', 'NU', 'OD', 'OE', 'OF', 'OH', 'OI', 'OK', 'OM', 'ON', 'OP', 'OR', 'OS', 'OW', 'OX', 'OY',
-      'PA', 'PE', 'PI', 'QI', 'RE', 'SH', 'SI', 'SO', 'TA', 'TI', 'TO', 'UG', 'UH', 'UM', 'UN', 'UP', 'US', 'UT',
-      'WE', 'WO', 'XI', 'XU', 'YA', 'YE', 'YO', 'ZA', 'ZO',
-      
-      // Common 3-letter words
-      'THE', 'AND', 'FOR', 'ARE', 'BUT', 'NOT', 'YOU', 'ALL', 'CAN', 'HER', 'WAS', 'ONE', 'OUR', 'OUT', 'DAY', 'GET', 'HAS', 'HIM', 'HIS', 'HOW', 'ITS', 'MAY', 'NEW', 'NOW', 'OLD', 'SEE', 'TWO', 'WHO', 'BOY', 'DID',
-      'CAT', 'DOG', 'RUN', 'SUN', 'BIG', 'RED', 'HOT', 'TOP', 'BAD', 'BAG', 'BED', 'BOX', 'CAR', 'CUP', 'EGG', 'EYE', 'FUN', 'HAT', 'JOB', 'LEG', 'MAN', 'PEN', 'PIG', 'RAT', 'SIT', 'TEN', 'WIN', 'YES', 'ZOO',
-      'ACE', 'ACT', 'ADD', 'AGE', 'AID', 'AIM', 'AIR', 'ART', 'ASK', 'ATE', 'BAT', 'BIT', 'BUG', 'BUS', 'BUY', 'CUT', 'EAR', 'EAT', 'END', 'FAR', 'FEW', 'FIT', 'FIX', 'FLY', 'GOT', 'GUN', 'HIT', 'ICE', 'ILL', 'JOY', 'KEY', 'LAY', 'LET', 'LIE', 'LOT', 'LOW', 'MAP', 'MIX', 'NET', 'OIL', 'OWN', 'PAY', 'PUT', 'SAD', 'SAY', 'SET', 'SIX', 'SKY', 'TRY', 'USE', 'WAR', 'WAY', 'WET', 'WHY', 'YET',
-      
-      // High-value Scrabble words
-      'QUA', 'ZAX', 'ZEX', 'JAW', 'JEW', 'WAX', 'FOX', 'TAX', 'MAX', 'REX', 'SEX', 'VEX', 'HEX', 'JAB', 'JAG', 'JAM', 'JAR', 'JET', 'JIG', 'JOG', 'JOT', 'JOW', 'JOY', 'JUG', 'JUT',
-      'ZAG', 'ZAP', 'ZED', 'ZEE', 'ZEN', 'ZEP', 'ZIG', 'ZIP', 'ZIT', 'ZOA', 'ZOD', 'ZOL', 'ZOO', 'ZUZ',
-      
-      // 4+ letter words
-      'THAT', 'WITH', 'HAVE', 'THIS', 'WILL', 'YOUR', 'FROM', 'THEY', 'KNOW', 'WANT', 'BEEN', 'GOOD', 'MUCH', 'SOME', 'TIME', 'VERY', 'WHEN', 'COME', 'HERE', 'JUST', 'LIKE', 'LONG', 'MAKE', 'MANY', 'OVER', 'SUCH', 'TAKE', 'THAN', 'THEM', 'WELL', 'WERE', 'WHAT', 'WORD', 'WORK', 'YEAR',
-      'QUIZ', 'JAZZ', 'JINX', 'WAXY', 'FOXY', 'COZY', 'HAZY', 'LAZY', 'MAZE', 'DAZE', 'GAZE', 'RAZE', 'FIZZ', 'BUZZ', 'FUZZ', 'RAZZ',
-      'ABOUT', 'AFTER', 'AGAIN', 'BEING', 'COULD', 'EVERY', 'FIRST', 'FOUND', 'GREAT', 'GROUP', 'HOUSE', 'LARGE', 'MIGHT', 'NEVER', 'OTHER', 'PLACE', 'RIGHT', 'SHALL', 'SMALL', 'SOUND', 'STILL', 'THEIR', 'THERE', 'THESE', 'THINK', 'THREE', 'UNDER', 'WATER', 'WHERE', 'WHICH', 'WHILE', 'WORLD', 'WOULD', 'WRITE', 'YOUNG',
-      'JAZZY', 'FIZZY', 'FUZZY', 'DIZZY', 'QUAKE', 'QUEEN', 'QUICK', 'QUIET', 'QUILT', 'QUOTE', 'QUART', 'QUASH', 'QUASI', 'QUELL', 'QUERY', 'QUEST', 'QUEUE', 'QUIRK',
-      
-      // Additional common words
-      'ABOVE', 'AGAIN', 'ALONE', 'ALONG', 'AMONG', 'ANGRY', 'APART', 'APPLE', 'APPLY', 'ARGUE', 'ARISE', 'ARRAY', 'ASIDE', 'ASSET', 'AVOID', 'AWAKE', 'AWARD', 'AWARE', 'BADLY', 'BASIC', 'BEACH', 'BEGAN', 'BEGIN', 'BEING', 'BELOW', 'BENCH', 'BILLY', 'BIRTH', 'BLACK', 'BLAME', 'BLIND', 'BLOCK', 'BLOOD', 'BOARD', 'BOOST', 'BOOTH', 'BOUND', 'BRAIN', 'BRAND', 'BRAVE', 'BREAD', 'BREAK', 'BREED', 'BRIEF', 'BRING', 'BROAD', 'BROKE', 'BROWN', 'BUILD', 'BUILT', 'BUYER', 'CABLE', 'CALIF', 'CARRY', 'CATCH', 'CAUSE', 'CHAIN', 'CHAIR', 'CHAOS', 'CHARM', 'CHART', 'CHASE', 'CHEAP', 'CHECK', 'CHEST', 'CHIEF', 'CHILD', 'CHINA', 'CHOSE', 'CIVIL', 'CLAIM', 'CLASS', 'CLEAN', 'CLEAR', 'CLICK', 'CLIMB', 'CLOCK', 'CLOSE', 'CLOUD', 'COACH', 'COAST', 'COULD', 'COUNT', 'COURT', 'COVER', 'CRAFT', 'CRASH', 'CRAZY', 'CREAM', 'CRIME', 'CROSS', 'CROWD', 'CROWN', 'CRUDE', 'CURVE', 'CYCLE', 'DAILY', 'DANCE', 'DATED', 'DEALT', 'DEATH', 'DEBUT', 'DELAY', 'DEPTH', 'DOING', 'DOUBT', 'DOZEN', 'DRAFT', 'DRAMA', 'DRANK', 'DRAWN', 'DREAM', 'DRESS', 'DRILL', 'DRINK', 'DRIVE', 'DROVE', 'DYING', 'EAGER', 'EARLY', 'EARTH', 'EIGHT', 'ELITE', 'EMPTY', 'ENEMY', 'ENJOY', 'ENTER', 'ENTRY', 'EQUAL', 'ERROR', 'EVENT', 'EVERY', 'EXACT', 'EXIST', 'EXTRA', 'FAITH', 'FALSE', 'FAULT', 'FIBER', 'FIELD', 'FIFTH', 'FIFTY', 'FIGHT', 'FINAL', 'FIRST', 'FIXED', 'FLASH', 'FLEET', 'FLOOR', 'FLUID', 'FOCUS', 'FORCE', 'FORTH', 'FORTY', 'FORUM', 'FOUND', 'FRAME', 'FRANK', 'FRAUD', 'FRESH', 'FRONT', 'FRUIT', 'FULLY', 'FUNNY', 'GIANT', 'GIVEN', 'GLASS', 'GLOBE', 'GOING', 'GRACE', 'GRADE', 'GRAND', 'GRANT', 'GRASS', 'GRAVE', 'GREAT', 'GREEN', 'GROSS', 'GROUP', 'GROWN', 'GUARD', 'GUESS', 'GUEST', 'GUIDE', 'HAPPY', 'HARRY', 'HEART', 'HEAVY', 'HENCE', 'HENRY', 'HORSE', 'HOTEL', 'HOUSE', 'HUMAN', 'HURRY', 'IMAGE', 'INDEX', 'INNER', 'INPUT', 'ISSUE', 'JAPAN', 'JIMMY', 'JOINT', 'JONES', 'JUDGE', 'KNOWN', 'LABEL', 'LARGE', 'LASER', 'LATER', 'LAUGH', 'LAYER', 'LEARN', 'LEASE', 'LEAST', 'LEAVE', 'LEGAL', 'LEVEL', 'LEWIS', 'LIGHT', 'LIMIT', 'LINKS', 'LIVES', 'LOCAL', 'LOOSE', 'LOWER', 'LUCKY', 'LUNCH', 'LYING', 'MAGIC', 'MAJOR', 'MAKER', 'MARCH', 'MARIA', 'MATCH', 'MAYBE', 'MAYOR', 'MEANT', 'MEDIA', 'METAL', 'MIGHT', 'MINOR', 'MINUS', 'MIXED', 'MODEL', 'MONEY', 'MONTH', 'MORAL', 'MOTOR', 'MOUNT', 'MOUSE', 'MOUTH', 'MOVED', 'MOVIE', 'MUSIC', 'NEEDS', 'NEVER', 'NEWLY', 'NIGHT', 'NOISE', 'NORTH', 'NOTED', 'NOVEL', 'NURSE', 'OCCUR', 'OCEAN', 'OFFER', 'OFTEN', 'ORDER', 'OTHER', 'OUGHT', 'PAINT', 'PANEL', 'PAPER', 'PARTY', 'PEACE', 'PETER', 'PHASE', 'PHONE', 'PHOTO', 'PIANO', 'PIECE', 'PILOT', 'PITCH', 'PLACE', 'PLAIN', 'PLANE', 'PLANT', 'PLATE', 'POINT', 'POUND', 'POWER', 'PRESS', 'PRICE', 'PRIDE', 'PRIME', 'PRINT', 'PRIOR', 'PRIZE', 'PROOF', 'PROUD', 'PROVE', 'QUEEN', 'QUICK', 'QUIET', 'QUITE', 'RADIO', 'RAISE', 'RANGE', 'RAPID', 'RATIO', 'REACH', 'READY', 'REALM', 'REBEL', 'REFER', 'RELAX', 'REPAY', 'REPLY', 'RIGHT', 'RIGID', 'RIVAL', 'RIVER', 'ROBIN', 'ROGER', 'ROMAN', 'ROUGH', 'ROUND', 'ROUTE', 'ROYAL', 'RURAL', 'SCALE', 'SCENE', 'SCOPE', 'SCORE', 'SENSE', 'SERVE', 'SEVEN', 'SHALL', 'SHAPE', 'SHARE', 'SHARP', 'SHEET', 'SHELF', 'SHELL', 'SHIFT', 'SHINE', 'SHIRT', 'SHOCK', 'SHOOT', 'SHORT', 'SHOWN', 'SIGHT', 'SILLY', 'SINCE', 'SIXTH', 'SIXTY', 'SIZED', 'SKILL', 'SLEEP', 'SLIDE', 'SMALL', 'SMART', 'SMILE', 'SMITH', 'SMOKE', 'SNAKE', 'SNOW', 'SOLID', 'SOLVE', 'SORRY', 'SOUND', 'SOUTH', 'SPACE', 'SPARE', 'SPEAK', 'SPEED', 'SPEND', 'SPENT', 'SPLIT', 'SPOKE', 'SPORT', 'STAFF', 'STAGE', 'STAKE', 'STAND', 'START', 'STATE', 'STEAM', 'STEEL', 'STEEP', 'STEER', 'STICK', 'STILL', 'STOCK', 'STONE', 'STOOD', 'STORE', 'STORM', 'STORY', 'STRIP', 'STUCK', 'STUDY', 'STUFF', 'STYLE', 'SUGAR', 'SUITE', 'SUPER', 'SWEET', 'TABLE', 'TAKEN', 'TASTE', 'TAXES', 'TEACH', 'TEAM', 'TEETH', 'TERRY', 'TEXAS', 'THANK', 'THEFT', 'THEIR', 'THEME', 'THERE', 'THESE', 'THICK', 'THING', 'THINK', 'THIRD', 'THOSE', 'THREE', 'THREW', 'THROW', 'THUMB', 'TIGHT', 'TIRED', 'TITLE', 'TODAY', 'TOPIC', 'TOTAL', 'TOUCH', 'TOUGH', 'TOWER', 'TRACK', 'TRADE', 'TRAIN', 'TREAT', 'TREND', 'TRIAL', 'TRIBE', 'TRICK', 'TRIED', 'TRIES', 'TRIP', 'TRUCK', 'TRULY', 'TRUNK', 'TRUST', 'TRUTH', 'TWICE', 'UNCLE', 'UNDER', 'UNDUE', 'UNION', 'UNITY', 'UNTIL', 'UPPER', 'UPSET', 'URBAN', 'USAGE', 'USUAL', 'VALID', 'VALUE', 'VIDEO', 'VIRUS', 'VISIT', 'VITAL', 'VOCAL', 'VOICE', 'WASTE', 'WATCH', 'WATER', 'WHEEL', 'WHERE', 'WHICH', 'WHILE', 'WHITE', 'WHOLE', 'WHOSE', 'WOMAN', 'WOMEN', 'WORLD', 'WORRY', 'WORSE', 'WORST', 'WORTH', 'WOULD', 'WRITE', 'WRONG', 'WROTE', 'YOUNG', 'YOUTH'
+    // If SOWPODS file not found, extract words from dictionary service
+    console.log('📖 Extracting words from dictionary service...');
+    
+    // Generate a comprehensive list of words by testing common patterns
+    const extractedWords: string[] = [];
+    
+    // Test all 2-letter combinations
+    console.log('🔍 Testing 2-letter words...');
+    for (let i = 0; i < 26; i++) {
+      for (let j = 0; j < 26; j++) {
+        const word = String.fromCharCode(65 + i) + String.fromCharCode(65 + j);
+        if (await dictionaryService.isValidWord(word)) {
+          extractedWords.push(word);
+        }
+      }
+    }
+    
+    // Test common 3-letter patterns
+    console.log('🔍 Testing 3-letter words...');
+    const commonLetters = 'AEIOURSTLNDHCMFPGWYBVKJXQZ';
+    for (let i = 0; i < commonLetters.length && extractedWords.length < 5000; i++) {
+      for (let j = 0; j < commonLetters.length; j++) {
+        for (let k = 0; k < commonLetters.length; k++) {
+          const word = commonLetters[i] + commonLetters[j] + commonLetters[k];
+          if (await dictionaryService.isValidWord(word)) {
+            extractedWords.push(word);
+          }
+        }
+      }
+    }
+    
+    // Test common 4-letter patterns (limited to prevent timeout)
+    console.log('🔍 Testing 4-letter words...');
+    const highFreqLetters = 'AEIOURSTLN';
+    for (let i = 0; i < highFreqLetters.length && extractedWords.length < 8000; i++) {
+      for (let j = 0; j < highFreqLetters.length; j++) {
+        for (let k = 0; k < highFreqLetters.length; k++) {
+          for (let l = 0; l < highFreqLetters.length; l++) {
+            const word = highFreqLetters[i] + highFreqLetters[j] + highFreqLetters[k] + highFreqLetters[l];
+            if (await dictionaryService.isValidWord(word)) {
+              extractedWords.push(word);
+            }
+          }
+        }
+      }
+    }
+    
+    // Add some known common words to ensure we have a good base
+    const knownWords = [
+      'THE', 'AND', 'FOR', 'ARE', 'BUT', 'NOT', 'YOU', 'ALL', 'CAN', 'HER', 'WAS', 'ONE', 'OUR', 'OUT',
+      'DAY', 'GET', 'HAS', 'HIM', 'HIS', 'HOW', 'ITS', 'MAY', 'NEW', 'NOW', 'OLD', 'SEE', 'TWO', 'WHO',
+      'CAT', 'DOG', 'RUN', 'SUN', 'BIG', 'RED', 'HOT', 'TOP', 'BAD', 'BAG', 'BED', 'BOX', 'CAR', 'CUP',
+      'THAT', 'WITH', 'HAVE', 'THIS', 'WILL', 'YOUR', 'FROM', 'THEY', 'KNOW', 'WANT', 'BEEN', 'GOOD',
+      'ABOUT', 'AFTER', 'AGAIN', 'BEING', 'COULD', 'EVERY', 'FIRST', 'FOUND', 'GREAT', 'GROUP', 'HOUSE'
     ];
     
-    // Validate words against dictionary service
-    const validWords: string[] = [];
-    for (const word of fallbackWords) {
-      if (await dictionaryService.isValidWord(word)) {
-        validWords.push(word);
+    for (const word of knownWords) {
+      if (await dictionaryService.isValidWord(word) && !extractedWords.includes(word)) {
+        extractedWords.push(word);
       }
     }
     
-    console.log(`✅ Validated ${validWords.length} words from fallback list`);
-    return validWords;
+    console.log(`✅ Extracted ${extractedWords.length} words from dictionary service`);
+    
+    if (extractedWords.length < 100) {
+      throw new Error(`Insufficient words extracted (${extractedWords.length}) - dictionary service may be broken`);
+    }
+    
+    return extractedWords;
   }
 }
 
@@ -874,35 +889,31 @@ class SingletonGADDAGManager {
   }
 
   private static async createInstance(): Promise<ProductionGADDAGMoveGenerator> {
-    console.log('🔧 Creating singleton GADDAG instance...');
     const generator = new ProductionGADDAGMoveGenerator();
     await generator.initialize();
-    console.log('✅ Singleton GADDAG instance ready');
     return generator;
   }
 
   /**
-   * Reset singleton (for testing purposes only)
+   * Check if ready without initializing
    */
-  static reset(): void {
-    this.instance = null;
-    this.isInitializing = false;
-    this.initPromise = null;
+  static async isReady(): Promise<boolean> {
+    return this.instance !== null;
+  }
+
+  /**
+   * Get statistics if available
+   */
+  static getStatistics(): {nodeCount: number, memoryUsage: number} | null {
+    return this.instance ? this.instance.getStatistics() : null;
   }
 }
 
 /**
- * Production GADDAG Move Generator with Singleton Pattern
+ * Production GADDAG Move Generator Singleton
  */
-export class ProductionGADDAGMoveGeneratorSingleton {
-  /**
-   * Generate moves using the singleton GADDAG instance
-   */
-  async generateMoves(
-    board: string[][],
-    rack: string[],
-    boardSize: number = 15
-  ): Promise<Array<{
+export const productionGADDAGMoveGenerator = {
+  async generateMoves(board: string[][], rack: string[]): Promise<Array<{
     word: string;
     row: number;
     col: number;
@@ -910,40 +921,24 @@ export class ProductionGADDAGMoveGeneratorSingleton {
     score: number;
     tiles: Array<{letter: string, row: number, col: number}>;
   }>> {
-    const generator = await SingletonGADDAGManager.getInstance();
-    return generator.generateMoves(board, rack, boardSize);
-  }
+    const instance = await SingletonGADDAGManager.getInstance();
+    return instance.generateMoves(board, rack);
+  },
 
-  /**
-   * Test word lookup using singleton instance
-   */
-  async testWordLookup(word: string): Promise<boolean> {
-    const generator = await SingletonGADDAGManager.getInstance();
-    return generator.testWordLookup(word);
-  }
-
-  /**
-   * Get statistics from singleton instance
-   */
-  async getStatistics(): Promise<{nodeCount: number, memoryUsage: number}> {
-    const generator = await SingletonGADDAGManager.getInstance();
-    return generator.getStatistics();
-  }
-
-  /**
-   * Check if ready
-   */
   async isReady(): Promise<boolean> {
-    try {
-      await SingletonGADDAGManager.getInstance();
-      return true;
-    } catch {
-      return false;
-    }
-  }
-}
+    return SingletonGADDAGManager.isReady();
+  },
 
-/**
- * Singleton instance for production use - prevents memory issues
- */
-export const productionGADDAGMoveGenerator = new ProductionGADDAGMoveGeneratorSingleton();
+  async getStatistics(): Promise<{nodeCount: number, memoryUsage: number}> {
+    const stats = SingletonGADDAGManager.getStatistics();
+    if (stats) return stats;
+    
+    // If not ready, return empty stats
+    return {nodeCount: 0, memoryUsage: 0};
+  },
+
+  async testWordLookup(word: string): Promise<boolean> {
+    const instance = await SingletonGADDAGManager.getInstance();
+    return instance.testWordLookup(word);
+  }
+};
