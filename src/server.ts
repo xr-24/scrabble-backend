@@ -6,6 +6,7 @@ import { registerRoomEvents } from './events/roomEvents';
 import { registerGameEvents } from './events/gameEvents';
 import { dictionaryService } from './services/dictionaryService';
 import { gaddagAIService } from './services/GADDAGAIService';
+import { gameService } from './services/GameService';
 
 const app = express();
 const server = createServer(app);
