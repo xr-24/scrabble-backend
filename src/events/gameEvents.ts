@@ -48,7 +48,7 @@ export function registerGameEvents(socket: Socket, io: Server) {
       return player.tiles.some((t: any) => t.isPowerUp && t.powerUpType === tile.powerUpType);
     }
     
-    // For blank tiles, check by ID and blank status (letter might have been changed to chosenLetter)
+    // For blank tiles, check by ID and blank status (letter might have been changed to chosen letter)
     if (tile.isBlank) {
       return player.tiles.some((t: any) => 
         t.id === tile.id && 

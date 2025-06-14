@@ -137,7 +137,14 @@ export class MoveManager {
   removeTilesFromPlayer(player: Player, pendingTiles: PlacedTile[]): Tile[] {
     const tilesToRemove = pendingTiles.map(pt => pt.tile);
     const remainingTiles = player.tiles.filter(
-      tile => !tilesToRemove.some(tr => tr.id === tile.id)
+      tile => !tilesToRemove.some(tr => {
+        // For blank tiles with chosen letters, match by ID only
+        if (tr.chosenLetter && tile.isBlank) {
+          return tr.id === tile.id;
+        }
+        // For regular tiles, match by ID
+        return tr.id === tile.id;
+      })
     );
     
     return remainingTiles;

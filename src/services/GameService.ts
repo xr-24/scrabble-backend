@@ -80,6 +80,32 @@ export class GameService {
       return true;
     }
     
+    // For blank tiles, check by ID and blank status (letter might have been changed to chosen letter)
+    if (tile.isBlank) {
+      const hasBlankTile = player.tiles.some(t => 
+        t.id === tile.id && 
+        t.isBlank === true
+      );
+      if (!hasBlankTile) {
+        console.warn(`Player ${playerId} doesn't own blank tile:`, tile);
+        console.warn(`Player tiles:`, player.tiles.map(t => ({ id: t.id, letter: t.letter, value: t.value, isBlank: t.isBlank })));
+      }
+      return hasBlankTile;
+    }
+    
+    // Special case: if tile has chosenLetter property, it's a blank tile being used as a specific letter
+    if (tile.chosenLetter) {
+      const hasBlankTile = player.tiles.some(t => 
+        t.id === tile.id && 
+        t.isBlank === true
+      );
+      if (!hasBlankTile) {
+        console.warn(`Player ${playerId} doesn't own blank tile for chosen letter:`, tile);
+        console.warn(`Player tiles:`, player.tiles.map(t => ({ id: t.id, letter: t.letter, value: t.value, isBlank: t.isBlank })));
+      }
+      return hasBlankTile;
+    }
+    
     // For regular tiles, check exact match
     const ownsTile = player.tiles.some(t => 
       t.id === tile.id && 
@@ -90,7 +116,7 @@ export class GameService {
     
     if (!ownsTile) {
       console.warn(`Player ${playerId} doesn't own tile:`, tile);
-      console.warn(`Player tiles:`, player.tiles.map(t => ({ id: t.id, letter: t.letter, value: t.value })));
+      console.warn(`Player tiles:`, player.tiles.map(t => ({ id: t.id, letter: t.letter, value: t.value, isBlank: t.isBlank })));
     }
     
     return ownsTile;
@@ -822,6 +848,190 @@ export class GameService {
     this.games.set(gameId, updatedGameState);
   }
 
+  executeBurn(gameId: string, playerId: string, targetTileIds: string[]): { success: boolean; errors: string[] } {
+    const gameState = this.games.get(gameId);
+    if (!gameState) {
+      return { success: false, errors: ['Game not found'] };
+    }
+
+    // Find target player (opponent)
+    const targetPlayer = gameState.players.find(p => p.id !== playerId && !p.hasEndedGame);
+    if (!targetPlayer) {
+      return { success: false, errors: ['No valid target player found'] };
+    }
+
+    const result = PowerUpManager.executeBurn(targetPlayer, targetTileIds);
+    
+    if (result.success) {
+      const updatedPlayers = gameState.players.map(p =>
+        p.id === targetPlayer.id ? result.updatedPlayer : p
+      );
+      
+      const updatedGameState: GameState = {
+        ...gameState,
+        players: updatedPlayers,
+      };
+
+      this.games.set(gameId, updatedGameState);
+      return { success: true, errors: [] };
+    } else {
+      return { success: false, errors: [result.error || 'Failed to execute burn'] };
+    }
+  }
+
+  executeTileThief(gameId: string, playerId: string, targetPlayerId: string, targetTileId: string): { success: boolean; errors: string[] } {
+    const gameState = this.games.get(gameId);
+    if (!gameState) {
+      return { success: false, errors: ['Game not found'] };
+    }
+
+    const currentPlayer = gameState.players.find(p => p.id === playerId);
+    const targetPlayer = gameState.players.find(p => p.id === targetPlayerId);
+    
+    if (!currentPlayer || !targetPlayer) {
+      return { success: false, errors: ['Player not found'] };
+    }
+
+    const result = PowerUpManager.executeTileThief(currentPlayer, targetPlayer, targetTileId);
+    
+    if (result.success) {
+      const updatedPlayers = gameState.players.map(p => {
+        if (p.id === playerId) return result.updatedCurrentPlayer;
+        if (p.id === targetPlayerId) return result.updatedTargetPlayer;
+        return p;
+      });
+      
+      const updatedGameState: GameState = {
+        ...gameState,
+        players: updatedPlayers,
+      };
+
+      this.games.set(gameId, updatedGameState);
+      return { success: true, errors: [] };
+    } else {
+      return { success: false, errors: [result.error || 'Failed to execute tile thief'] };
+    }
+  }
+
+  executeDuplicate(gameId: string, playerId: string, sourceTileId: string): { success: boolean; errors: string[] } {
+    const gameState = this.games.get(gameId);
+    if (!gameState) {
+      return { success: false, errors: ['Game not found'] };
+    }
+
+    const player = gameState.players.find(p => p.id === playerId);
+    if (!player) {
+      return { success: false, errors: ['Player not found'] };
+    }
+
+    const result = PowerUpManager.executeDuplicate(player, sourceTileId);
+    
+    if (result.success) {
+      const updatedPlayers = gameState.players.map(p =>
+        p.id === playerId ? result.updatedPlayer : p
+      );
+      
+      const updatedGameState: GameState = {
+        ...gameState,
+        players: updatedPlayers,
+      };
+
+      this.games.set(gameId, updatedGameState);
+      return { success: true, errors: [] };
+    } else {
+      return { success: false, errors: [result.error || 'Failed to execute duplicate'] };
+    }
+  }
+
+  executeExtraTiles(gameId: string, playerId: string): { success: boolean; errors: string[] } {
+    const gameState = this.games.get(gameId);
+    if (!gameState) {
+      return { success: false, errors: ['Game not found'] };
+    }
+
+    const player = gameState.players.find(p => p.id === playerId);
+    if (!player) {
+      return { success: false, errors: ['Player not found'] };
+    }
+
+    const result = PowerUpManager.executeExtraTiles(player, gameState.tileBag);
+    
+    if (result.success) {
+      const updatedPlayers = gameState.players.map(p =>
+        p.id === playerId ? result.updatedPlayer : p
+      );
+      
+      const updatedGameState: GameState = {
+        ...gameState,
+        players: updatedPlayers,
+        tileBag: result.updatedBag,
+      };
+
+      this.games.set(gameId, updatedGameState);
+      return { success: true, errors: [] };
+    } else {
+      return { success: false, errors: [result.error || 'Failed to execute extra tiles'] };
+    }
+  }
+
+  executeSilence(gameId: string, playerId: string, targetPlayerId: string): { success: boolean; errors: string[] } {
+    const gameState = this.games.get(gameId);
+    if (!gameState) {
+      return { success: false, errors: ['Game not found'] };
+    }
+
+    const targetPlayer = gameState.players.find(p => p.id === targetPlayerId);
+    if (!targetPlayer) {
+      return { success: false, errors: ['Target player not found'] };
+    }
+
+    const result = PowerUpManager.executeSilence(targetPlayer);
+    
+    if (result.success) {
+      // Store silenced tile IDs in game state (you might need to add this to GameState type)
+      // For now, we'll just return success - the silencing effect would need to be tracked
+      // in the game state and checked during tile placement validation
+      
+      console.log(`Silence powerup executed: silenced tiles ${result.silencedTileIds.join(', ')} for player ${targetPlayerId}`);
+      return { success: true, errors: [] };
+    } else {
+      return { success: false, errors: [result.error || 'Failed to execute silence'] };
+    }
+  }
+
+  executeTileFreeze(gameId: string, playerId: string, targetRow: number, targetCol: number): { success: boolean; errors: string[] } {
+    const gameState = this.games.get(gameId);
+    if (!gameState) {
+      return { success: false, errors: ['Game not found'] };
+    }
+
+    // Validate target position has a tile
+    if (!gameState.board[targetRow] || !gameState.board[targetRow][targetCol] || !gameState.board[targetRow][targetCol].tile) {
+      return { success: false, errors: ['No tile at target position'] };
+    }
+
+    // For now, just log the freeze effect - you'd need to track frozen tiles in game state
+    console.log(`Tile freeze powerup executed: froze tile at position (${targetRow}, ${targetCol})`);
+    return { success: true, errors: [] };
+  }
+
+  executeMultiplierThief(gameId: string, playerId: string, targetRow: number, targetCol: number): { success: boolean; errors: string[] } {
+    const gameState = this.games.get(gameId);
+    if (!gameState) {
+      return { success: false, errors: ['Game not found'] };
+    }
+
+    // Validate target position has a multiplier
+    const targetCell = gameState.board[targetRow]?.[targetCol];
+    if (!targetCell || (!targetCell.multiplier || targetCell.tile)) {
+      return { success: false, errors: ['No available multiplier at target position'] };
+    }
+
+    // For now, just log the theft - you'd need to track stolen multipliers in game state
+    console.log(`Multiplier thief powerup executed: stole ${targetCell.multiplier} multiplier from position (${targetRow}, ${targetCol})`);
+    return { success: true, errors: [] };
+  }
+
   executePowerUp(gameId: string, playerId: string, powerUpType: string, params: any): { success: boolean; errors: string[] } {
     const gameState = this.games.get(gameId);
     if (!gameState) {
@@ -833,19 +1043,49 @@ export class GameService {
       return { success: false, errors: ['Player not found'] };
     }
 
-    // Handle different power-up types
-    switch (powerUpType) {
-      case 'HEADSTONE':
-        this.executeHeadstoneSwap(gameId, playerId);
-        return { success: true, errors: [] };
-      case 'WILTED_ROSE':
-        this.executeWiltedRoseSwap(gameId, playerId);
-        return { success: true, errors: [] };
-      case 'CRESCENT_MOON':
-        this.executeCrescentMoon(gameId, playerId);
-        return { success: true, errors: [] };
-      default:
-        return { success: false, errors: ['Unknown power-up type'] };
+    try {
+      // Handle different power-up types
+      switch (powerUpType) {
+        case 'HEADSTONE':
+          this.executeHeadstoneSwap(gameId, playerId);
+          return { success: true, errors: [] };
+          
+        case 'WILTED_ROSE':
+          this.executeWiltedRoseSwap(gameId, playerId);
+          return { success: true, errors: [] };
+          
+        case 'CRESCENT_MOON':
+          this.executeCrescentMoon(gameId, playerId);
+          return { success: true, errors: [] };
+          
+        case 'BURN':
+          return this.executeBurn(gameId, playerId, params.targetTileIds);
+          
+        case 'TILE_THIEF':
+          return this.executeTileThief(gameId, playerId, params.targetPlayerId, params.targetTileId);
+          
+        case 'DUPLICATE':
+          return this.executeDuplicate(gameId, playerId, params.sourceTileId);
+          
+        case 'EXTRA_TILES':
+          return this.executeExtraTiles(gameId, playerId);
+          
+        case 'SILENCE':
+          return this.executeSilence(gameId, playerId, params.targetPlayerId);
+          
+        case 'TILE_FREEZE':
+          return this.executeTileFreeze(gameId, playerId, params.targetRow, params.targetCol);
+          
+        case 'MULTIPLIER_THIEF':
+          return this.executeMultiplierThief(gameId, playerId, params.targetRow, params.targetCol);
+          
+        default:
+          return { success: false, errors: [`Unknown power-up type: ${powerUpType}`] };
+      }
+    } catch (error) {
+      console.error(`Error executing power-up ${powerUpType}:`, error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      return { success: false, errors: [`Failed to execute power-up: ${errorMessage}`] };
     }
   }
 

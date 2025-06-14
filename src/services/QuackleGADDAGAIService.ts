@@ -443,15 +443,19 @@ export class QuackleGADDAGAIService {
       
       // Try using a blank tile if no regular tile available
       if (!availableTile) {
-        availableTile = playerTiles.find(t => 
+        const blankTile = playerTiles.find(t => 
           t.isBlank && !usedTileIds.includes(t.id)
         );
         
-        if (availableTile) {
-          // Create a copy of the blank tile with the assigned letter
+        if (blankTile) {
+          // For blank tiles, we need to preserve the original tile for validation
+          // but indicate what letter it should represent when placed
           availableTile = {
-            ...availableTile,
-            letter: letter
+            ...blankTile,
+            // Keep original letter (?) for validation, but add chosen letter as metadata
+            chosenLetter: letter,
+            value: 0, // Blank tiles are always worth 0 points
+            isBlank: true // Keep the isBlank flag for proper validation
           };
         }
       }
