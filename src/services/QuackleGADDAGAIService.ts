@@ -34,23 +34,93 @@ export class QuackleGADDAGAIService {
   private async initialize(): Promise<void> {
     try {
       console.log('🔥 Initializing Quackle GADDAG AI Service...');
-      const dictPath = path.join(__dirname, 'gaddag', 'sowpods.txt');
       
-      // Build GADDAG from dictionary
+      // Wait for dictionary service to be ready
+      await dictionaryService.loadDictionary();
+      
+      // Build GADDAG from dictionary service's internal word set
       console.time('GADDAG Build');
-      this.gaddag = await buildGaddagFromFile(dictPath);
+      this.gaddag = await this.buildGaddagFromDictionaryService();
       console.timeEnd('GADDAG Build');
       console.log(`✅ GADDAG built with ${this.gaddag.size} nodes`);
 
-      // Load dictionary as Set for Board class
-      const fs = await import('fs/promises');
-      const dictContent = await fs.readFile(dictPath, 'utf8');
-      this.dictionary = new Set(
-        dictContent.split(/\r?\n/).map(line => line.trim().toUpperCase()).filter(word => word)
-      );
+      // Create dictionary set for Board class
+      this.dictionary = await this.getDictionarySet();
       console.log(`✅ Dictionary loaded with ${this.dictionary.size} words`);
     } catch (error) {
       console.error('💀 Failed to initialize GADDAG AI:', error);
+      throw error;
+    }
+  }
+
+  private async buildGaddagFromDictionaryService(): Promise<Gaddag> {
+    const gaddag = new Gaddag();
+    
+    // We need to access the dictionary service's internal word set
+    // Since it doesn't expose getAllWords(), we'll build it by testing common words
+    // or use a fallback approach
+    try {
+      // Try to load from the same source as dictionary service
+      const fs = await import('fs');
+      const path = await import('path');
+      
+      // Try local file first
+      const localPath = path.join(process.cwd(), 'public', 'sowpods.txt');
+      if (fs.existsSync(localPath)) {
+        const content = fs.readFileSync(localPath, 'utf8');
+        const words = content.trim().split('\n').map(word => word.trim().toUpperCase());
+        for (const word of words) {
+          if (word) gaddag.addWord(word);
+        }
+        return gaddag;
+      }
+    } catch (error) {
+      console.log('Local file approach failed, trying remote...');
+    }
+
+    // Fallback: download the same dictionary
+    try {
+      const response = await fetch('https://www.wordgamedictionary.com/sowpods/download/sowpods.txt');
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const content = await response.text();
+      const words = content.trim().split('\n').map(word => word.trim().toUpperCase());
+      for (const word of words) {
+        if (word) gaddag.addWord(word);
+      }
+      return gaddag;
+    } catch (error) {
+      console.error('Failed to build GADDAG:', error);
+      throw error;
+    }
+  }
+
+  private async getDictionarySet(): Promise<Set<string>> {
+    try {
+      // Try local file first
+      const fs = await import('fs');
+      const path = await import('path');
+      
+      const localPath = path.join(process.cwd(), 'public', 'sowpods.txt');
+      if (fs.existsSync(localPath)) {
+        const content = fs.readFileSync(localPath, 'utf8');
+        return new Set(content.trim().split('\n').map(word => word.trim().toUpperCase()));
+      }
+    } catch (error) {
+      console.log('Local file approach failed for dictionary set...');
+    }
+
+    // Fallback: download dictionary
+    try {
+      const response = await fetch('https://www.wordgamedictionary.com/sowpods/download/sowpods.txt');
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const content = await response.text();
+      return new Set(content.trim().split('\n').map((word: string) => word.trim().toUpperCase()));
+    } catch (error) {
+      console.error('Failed to load dictionary set:', error);
       throw error;
     }
   }
