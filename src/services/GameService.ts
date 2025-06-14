@@ -3,7 +3,7 @@ import { createEmptyBoard } from '../constants/board';
 import { createTileBag, drawTiles, TILES_PER_PLAYER } from '../constants/tiles';
 import { moveManager, type MoveResult } from './moveManager';
 import { PowerUpManager } from './PowerUpManager';
-import { gaddagAIService } from './GADDAGAIService';
+import { quackleGaddagAIService } from './QuackleGADDAGAIService';
 
 export class GameService {
   private games: Map<string, GameState> = new Map();
@@ -427,7 +427,7 @@ export class GameService {
       console.log(`Executing AI move for ${currentPlayer.name}`);
       
       // Generate AI move using GADDAG
-      const aiMove = await gaddagAIService.generateMove(gameState, currentPlayer.id);
+      const aiMove = await quackleGaddagAIService.generateMove(gameState, currentPlayer.id);
       
       switch (aiMove.type) {
         case 'WORD':

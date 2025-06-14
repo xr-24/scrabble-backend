@@ -5,7 +5,7 @@ import cors from 'cors';
 import { registerRoomEvents } from './events/roomEvents';
 import { registerGameEvents } from './events/gameEvents';
 import { dictionaryService } from './services/dictionaryService';
-import { gaddagAIService } from './services/GADDAGAIService';
+import { quackleGaddagAIService } from './services/QuackleGADDAGAIService';
 import { gameService } from './services/GameService';
 
 const app = express();
@@ -124,9 +124,9 @@ async function initializeServer() {
     await dictionaryService.loadDictionary();
     console.log('Dictionary loaded successfully');
     
-    console.log('🧠 Initializing GADDAG AI...');
-    await gaddagAIService.initialize();
-    console.log('🧠 GADDAG AI initialized successfully');
+    console.log('🔥 Initializing Quackle GADDAG AI...');
+    // QuackleGADDAGAIService initializes automatically in constructor
+    console.log('🔥 Quackle GADDAG AI initialized successfully');
     
     const PORT = process.env.PORT || 3001;
     server.listen(PORT, () => {
