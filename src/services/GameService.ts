@@ -869,6 +869,34 @@ export class GameService {
     this.pendingTiles.delete(gameId);
     console.log(`Game ${gameId} removed from memory`);
   }
+
+  // Update player color in game state
+  updatePlayerColor(gameId: string, playerId: string, color: string): { success: boolean; errors: string[] } {
+    const gameState = this.games.get(gameId);
+    if (!gameState) {
+      return { success: false, errors: ['Game not found'] };
+    }
+
+    const player = gameState.players.find(p => p.id === playerId);
+    if (!player) {
+      return { success: false, errors: ['Player not found in game'] };
+    }
+
+    // Update player's tile color
+    const updatedPlayers = gameState.players.map(p =>
+      p.id === playerId ? { ...p, tileColor: color } : p
+    );
+
+    const updatedGameState: GameState = {
+      ...gameState,
+      players: updatedPlayers,
+    };
+
+    this.games.set(gameId, updatedGameState);
+    console.log(`Player ${playerId} color updated to ${color} in game ${gameId}`);
+    
+    return { success: true, errors: [] };
+  }
 }
 
 // Export singleton instance
