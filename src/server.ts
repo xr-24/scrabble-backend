@@ -5,7 +5,7 @@ import cors from 'cors';
 import { registerRoomEvents } from './events/roomEvents';
 import { registerGameEvents } from './events/gameEvents';
 import { dictionaryService } from './services/dictionaryService';
-import { advancedAIService } from './services/AdvancedAIService';
+import { gaddagAIService } from './services/GADDAGAIService';
 
 const app = express();
 const server = createServer(app);
@@ -123,15 +123,15 @@ async function initializeServer() {
     await dictionaryService.loadDictionary();
     console.log('Dictionary loaded successfully');
     
-    console.log('🔥 Initializing Advanced AI...');
-    await advancedAIService.initialize();
-    console.log('🔥 Advanced AI initialized successfully');
+    console.log('🧠 Initializing GADDAG AI...');
+    await gaddagAIService.initialize();
+    console.log('🧠 GADDAG AI initialized successfully');
     
     const PORT = process.env.PORT || 3001;
     server.listen(PORT, () => {
       console.log(`🚀 Scrabble Backend Server running on port ${PORT}`);
       console.log(`📚 Dictionary loaded with ${dictionaryService.getDictionarySize()} words`);
-      console.log(`🔥 Advanced AI ready for lightning-fast moves`);
+      console.log(`🧠 GADDAG AI ready for lightning-fast moves`);
       console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log(`🔗 CORS origins: ${JSON.stringify(corsOptions.origin)}`);
       console.log(`🛡️  Security measures enabled`);
